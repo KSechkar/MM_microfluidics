@@ -69,16 +69,7 @@ while True:
 #
 
 # Add two digital flow sensors with water calibration
-# WE ONLY HAVE TYPE 4 SENSORS (MICRFOLUIDIC FLOW SENSORS FOR MAX +-80UL/MIN)
-# OUR SENSORS ARE DIGITAL AND CALIBRATED FOR WATER
-error=OB1_Add_Sens(Kenobi, # which OB-1 is being used
-                   1,   # channel connected to the sensor
-                   4,   # sensor type
-                   1,   # 0 if analog, 1 if digital
-                   0,   # 0 if calibrated for water, 1 if calibrated for isopropanol
-                   7,   # resolution bits (NOT the exact number thereof! refer to the walkthrough)
-                   0    # voltage for custom analog sensors (IRRELEVANT FOR US)
-                   )
+
 print('error add digit flow sensor 1:%d' % error)
 error=OB1_Add_Sens(Kenobi, # which OB-1 is being used
                    2,   # channel connected to the sensor
