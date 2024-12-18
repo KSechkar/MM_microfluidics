@@ -4,7 +4,7 @@
 # IMPORTS --------------------------------------------------------------------------------------------------------------
 # PYTHON PACKAGES
 import time
-import numpy as np
+import numpy as np, pandas as pd
 import matplotlib, matplotlib.pyplot as plt
 import threading
 import tkinter, tkinter.filedialog
@@ -25,21 +25,20 @@ class OB1_manager:
     # INITIALISATION AND SETUP -----------------------------------------------------------------------------------------
     # initialise (guides the user through setting up the microfluidics)
     def __init__(self):
-        # from_file = input('Do you want to load settings from a saved file? (yes, no) : ')
-        # if (from_file == 'yes'):
-        #     # select the file
-        #     loadfilewindow = tkinter.Tk()
-        #     loadfilewindow.wm_attributes('-topmost', 1)
-        #     loadfilewindow.withdraw()
-        #     settings_file = tkinter.filedialog.askopenfilename()
-        #     # load settings from the file
-        #     still_todo=self.load_settings(settings_file)
-        # else:
-        #     still_todo = {'OB-1 CHANNEL': True,
-        #                   'FLOW CONTROLLER': True,
-        #                   'OB-1-COMPUTER INTERACTIONS': True,
-        #                   'SAFEGUARDS': True}
-        still_todo = self.load_settings('default_settings.txt')
+        from_file = input('Do you want to load settings from a saved file? (yes, no) : ')
+        if (from_file == 'yes'):
+            # select the file
+            loadfilewindow = tkinter.Tk()
+            loadfilewindow.wm_attributes('-topmost', 1)
+            loadfilewindow.withdraw()
+            settings_file = tkinter.filedialog.askopenfilename()
+            # load settings from the file
+            still_todo=self.load_settings(settings_file)
+        else:
+            still_todo = {'OB-1 CHANNEL': True,
+                          'FLOW CONTROLLER': True,
+                          'OB-1-COMPUTER INTERACTIONS': True,
+                          'SAFEGUARDS': True}
 
         # print('\nSET UP THE OB-1')    # ----------------------------------------------------------------------------------
         print('Initialising OB-1...')
@@ -51,61 +50,55 @@ class OB1_manager:
             print('OB-1 initialisation error: %d' % ob1_error_msg)
             exit(1)
 
-        self.Calib = (c_double * 1000)()  # Always define array this way, calibration should have 1000 elements
-        ob1_error_msg = Elveflow_Calibration_Load((os.path.abspath('Calib17')).encode('ascii'), byref(self.Calib), 1000)
-        if (ob1_error_msg != 0):
-            print('Calibration loading error: %d' % ob1_error_msg)
-            exit(1)
+        while True:
+            self.Calib = (c_double * 1000)()  # Always define array this way, calibration should have 1000 elements
+            calib_type = input('Select OB-1 calibration (default, load, new ) : ')
+            Calib_path = 'C:\\Users\\Public\\Desktop\\Calibration\\Calib.txt'
+            if calib_type == 'default':
+                ob1_error_msg = Elveflow_Calibration_Default(byref(self.Calib), 1000)
+                if (ob1_error_msg != 0):
+                    print('Default calibration error: %d' % ob1_error_msg)
+                    exit(1)
+                self.check_calibration()
+                good_calibration=input('Happy with the calibration? (yes, no) : ')
+                if (good_calibration=='yes'):
+                    break
 
-        # while True:
-        #     self.Calib = (c_double * 1000)()  # Always define array this way, calibration should have 1000 elements
-        #     calib_type = input('Select OB-1 calibration (default, load, new ) : ')
-        #     Calib_path = 'C:\\Users\\Public\\Desktop\\Calibration\\Calib.txt'
-        #     if calib_type == 'default':
-        #         ob1_error_msg = Elveflow_Calibration_Default(byref(self.Calib), 1000)
-        #         if (ob1_error_msg != 0):
-        #             print('Default calibration error: %d' % ob1_error_msg)
-        #             exit(1)
-        #         self.check_calibration()
-        #         good_calibration=input('Happy with the calibration? (yes, no) : ')
-        #         if (good_calibration=='yes'):
-        #             break
-        #
-        #     if calib_type == 'load':
-        #         ob1_error_msg = Elveflow_Calibration_Load(' '.encode('ascii'), byref(self.Calib), 1000)
-        #         if (ob1_error_msg != 0):
-        #             print('Calibration loading error: %d' % ob1_error_msg)
-        #             exit(1)
-        #         self.check_calibration()
-        #         good_calibration = input('Happy with the calibration? (yes, no) : ')
-        #         if (good_calibration == 'yes'):
-        #             break
-        #
-        #     if calib_type == 'new':
-        #         # check if the user has assembled the calibration setup
-        #         calib_ready = 'no'
-        #         while (calib_ready != 'yes'):
-        #             calib_ready = input('New OB-1 calibration. Type yes to confirm all sensors are disconnected and pressure outlets are capped : ')
-        #         print('Calibrating the OB-1...')
-        #         ob1_error_msg=OB1_Calib(self.OB1.value, self.Calib, 1000)
-        #         if(ob1_error_msg != 0):
-        #             print('OB-1 calibration error: %d' % ob1_error_msg)
-        #             exit(1)
-        #         ob1_error_msg = Elveflow_Calibration_Save(
-        #             Calib_path.encode('ascii'),
-        #             byref(self.Calib), 1000)
-        #         if(ob1_error_msg != 0):
-        #             print('OB-1 calibration save error: %d' % ob1_error_msg)
-        #             exit(1)
-        #         print('Calibration saved in %s' % Calib_path.encode('ascii'))
-        #         self.check_calibration()
-        #         good_calibration = input('Happy with the calibration? (yes, no) : ')
-        #         if (good_calibration == 'yes'):
-        #             # check the main setup
-        #             reconnected = 'no'
-        #             while (reconnected != 'yes'):
-        #                 reconnected = input('OB-1 calibration complete. Type yes to confirm you have reconnected all desired sensors and pressure outlets : ')
-        #             break
+            if calib_type == 'load':
+                ob1_error_msg = Elveflow_Calibration_Load(' '.encode('ascii'), byref(self.Calib), 1000)
+                if (ob1_error_msg != 0):
+                    print('Calibration loading error: %d' % ob1_error_msg)
+                    exit(1)
+                self.check_calibration()
+                good_calibration = input('Happy with the calibration? (yes, no) : ')
+                if (good_calibration == 'yes'):
+                    break
+
+            if calib_type == 'new':
+                # check if the user has assembled the calibration setup
+                calib_ready = 'no'
+                while (calib_ready != 'yes'):
+                    calib_ready = input('New OB-1 calibration. Type yes to confirm all sensors are disconnected and pressure outlets are capped : ')
+                print('Calibrating the OB-1...')
+                ob1_error_msg=OB1_Calib(self.OB1.value, self.Calib, 1000)
+                if(ob1_error_msg != 0):
+                    print('OB-1 calibration error: %d' % ob1_error_msg)
+                    exit(1)
+                ob1_error_msg = Elveflow_Calibration_Save(
+                    Calib_path.encode('ascii'),
+                    byref(self.Calib), 1000)
+                if(ob1_error_msg != 0):
+                    print('OB-1 calibration save error: %d' % ob1_error_msg)
+                    exit(1)
+                print('Calibration saved in %s' % Calib_path.encode('ascii'))
+                self.check_calibration()
+                good_calibration = input('Happy with the calibration? (yes, no) : ')
+                if (good_calibration == 'yes'):
+                    # check the main setup
+                    reconnected = 'no'
+                    while (reconnected != 'yes'):
+                        reconnected = input('OB-1 calibration complete. Type yes to confirm you have reconnected all desired sensors and pressure outlets : ')
+                    break
 
         print('\nSPECIFY THE OB-1 SETUP') # ----------------------------------------------------------------------------
         if(still_todo['OB-1 CHANNEL']):
@@ -126,7 +119,7 @@ class OB1_manager:
             exit(1)
 
         # print('\nFILL THE TUBING') # -----------------------------------------------------------------------------------
-        # self.fill_tubing()
+        self.fill_tubing()
 
         print('\nSET UP THE FLOW CONTROLLER') # ------------------------------------------------------------------------
         if(still_todo['FLOW CONTROLLER']):
@@ -185,6 +178,8 @@ class OB1_manager:
         self.user_thread = threading.Thread(target=self.cruise_control_user, daemon=True)
         # create a queue of user commands for the OB-1 thread
         self.user_cmd_queue = queue.Queue()
+        # create a queue of messages to be printed when prompted by the OB-1 handler
+        self.OB1_print_queue = queue.Queue()
 
         return
 
@@ -673,32 +668,9 @@ class OB1_manager:
             while self.doing_cruise_control:
                 time.sleep(self.dt_check)
         except KeyboardInterrupt:
-            self.doing_cruise_control = False
             self.stop_cruise_control()
-            print('Cruise control keyboard-interrupted!')
+            print('Cruise control keyboard-interrupted')
 
-        return
-
-    # stop cruise control
-    def stop_cruise_control(self):
-        # STOP THE REMOTE LOOP, IF RUNNING IT - REMOTE LOOP CURRENTLY NOT WORKING
-        if(self.remote):
-            ob1_error_msg = OB1_Stop_Remote_Measurement(self.OB1.value)
-            ob1_error_msg = PID_Set_Running_Remote(self.OB1.value,  # which OB-1 is being used
-                                                   self.ch,         # which channel is being controlled
-                                                   0)               # 1 if run, 0 if stop
-
-        # set all pressures to zero
-        ob1_error_msg = OB1_Set_Press(self.OB1.value,   # which OB-1 is being used
-                              1,                        # which channel is being controlled
-                              0,                        # which pressure is being set
-                              byref(self.Calib), 1000   # calibration (do not touch)
-                              )
-        ob1_error_msg = OB1_Set_Press(self.OB1.value,   # which OB-1 is being used
-                              1,                        # which channel is being controlled
-                              0,                        # which pressure is being set
-                              byref(self.Calib), 1000   # calibration (do not touch)
-                              )
         return
 
     # handle interactions and records with the OB-1 during cruise control
@@ -740,13 +712,10 @@ class OB1_manager:
                 user_cmd, user_cmd_arg0, user_cmd_arg1, user_cmd_arg2 = self.user_cmd_queue.get_nowait()
                 # get the command type
                 if (user_cmd == 0):  # 0 for stopping the cruise control
-                    self.doing_cruise_control = False
                     self.stop_cruise_control()
-                    print('Cruise control stopped by user command')
                     break
                 elif (user_cmd == 1):  # 1 for changing reference flow
                     self.ref_flow = user_cmd_arg0
-                    print('\tReference flow changed to %f ul/min' % self.ref_flow)
                 elif (user_cmd == 2):  # 2 for changing the PI(D?) gains
                     # get the gains
                     self.p_gain = user_cmd_arg0
@@ -761,10 +730,6 @@ class OB1_manager:
                                                              self.i_gain,  # I gain
                                                              # self.d_gain,     # D CONTROL CURRENTLY UNSUPPORTED BY ELVEFLOW
                                                              1)  # 1 if run, 0 if stop
-
-                    print('\tP gain changed to %f' % self.p_gain)
-                    print('\tI gain changed to %f' % self.i_gain)
-                    # print('\tD gain changed to %f' % self.d_gain) # D CONTROL CURRENTLY UNSUPPORTED BY ELVEFLOW
             except:
                 pass
 
@@ -864,10 +829,6 @@ class OB1_manager:
                 with open(self.logfilepath, 'a', newline='') as logfile:
                     logwriter = csv.writer(logfile)
                     logwriter.writerow([self.stmemo_time[-1], self.stmemo_p[-1], self.stmemo_flow[-1], self.stmemo_ref[-1]])
-                # print('Time: %f s; Pressure: %f mbar; Flow: %f ul/min; Reference: %f ul/min' % (self.stmemo_time[-1],
-                #                                                                                 self.stmemo_p[-1],
-                #                                                                                 self.stmemo_flow[-1],
-                #                                                                                 self.stmemo_ref[-1]))
 
             # UPDATE THE CHECK COUNTER AND WAIT FOR THE NEXT CHECK
             cc_check_cntr += 1
@@ -877,32 +838,61 @@ class OB1_manager:
     # handle user input during cruise control
     def cruise_control_user(self):
         while self.doing_cruise_control:
+            # First, print messages from the OB-1 handler, if any
             try:
-                # Use input with a timeout to allow for keyboard interrupts
-                user_cmd = input("What do you want to do? (stop, set_ref, set_gains): ")
+                OB1_print = self.OB1_print_queue.get_nowait()
+                print(1)
+                print(OB1_print)
+            except:
+                pass
 
-                if(user_cmd=='stop'):   # stop the cruise control
-                    print('Stopping cruise control...')
-                    self.user_cmd_queue.put((0,         # command code: 0 for stopping the cruise control
-                                             0, 0, 0))   # args: irrelevant for cmd 0
-                    break
-                elif(user_cmd=='set_ref'):  # set the reference flow
-                    ref_flow = float(input("Specify the reference flow (ul/min): "))
-                    self.user_cmd_queue.put((1,                 # command code: 1 for changing reference flow
-                                             ref_flow, 0, 0))   # args: zeroth is the new ref flow, others irrelevant
-                elif(user_cmd=='set_gains'):  # set the PI(D?) gains
-                    p_gain = float(input("Specify the new P gain: "))
-                    i_gain = float(input("Specify the new I gain: "))
-                    # d_gain = float(input("Specify the new D gain: "))  # D CONTROL CURRENTLY UNSUPPORTED BY ELVEFLOW
-                    self.user_cmd_queue.put((2,                 # command code: 2 for changing the PI(D?) gains
-                                             # args
-                                             p_gain,            # zeroth arg is the new P gain
-                                             i_gain,            # first arg is the new I gain
-                                             0))                # second arg is the new D gain - BUT D CONTROL CURRENTLY UNSUPPORTED BY ELVEFLOW
-            except KeyboardInterrupt:
-                self.doing_cruise_control = False
-                self.stop_cruise_control()
+            # User input
+            user_cmd = input("What do you want to do? (stop, set_ref, set_gains): ")
+
+            if(user_cmd=='stop'):   # stop the cruise control
+                print('Stopping cruise control...')
+                self.user_cmd_queue.put((0,         # command code: 0 for stopping the cruise control
+                                         0, 0, 0))   # args: irrelevant for cmd 0
                 break
+            elif(user_cmd=='set_ref'):  # set the reference flow
+                ref_flow = float(input("Specify the reference flow (ul/min): "))
+                self.user_cmd_queue.put((1,                 # command code: 1 for changing reference flow
+                                         ref_flow, 0, 0))   # args: zeroth is the new ref flow, others irrelevant
+            elif(user_cmd=='set_gains'):  # set the PI(D?) gains
+                p_gain = float(input("Specify the new P gain: "))
+                i_gain = float(input("Specify the new I gain: "))
+                # d_gain = float(input("Specify the new D gain: "))  # D CONTROL CURRENTLY UNSUPPORTED BY ELVEFLOW
+                self.user_cmd_queue.put((2,                 # command code: 2 for changing the PI(D?) gains
+                                         # args
+                                         p_gain,            # zeroth arg is the new P gain
+                                         i_gain,            # first arg is the new I gain
+                                         0))                # second arg is the new D gain - BUT D CONTROL CURRENTLY UNSUPPORTED BY ELVEFLOW
+        return
+
+    # stop cruise control
+    def stop_cruise_control(self):
+        self.doing_cruise_control = False
+
+        # STOP THE REMOTE LOOP, IF RUNNING IT - REMOTE LOOP CURRENTLY NOT WORKING
+        if (self.remote):
+            ob1_error_msg = OB1_Stop_Remote_Measurement(self.OB1.value)
+            ob1_error_msg = PID_Set_Running_Remote(self.OB1.value,  # which OB-1 is being used
+                                                   self.ch,  # which channel is being controlled
+                                                   0)  # 1 if run, 0 if stop
+
+        # set all pressures to zero
+        ob1_error_msg = OB1_Set_Press(self.OB1.value,  # which OB-1 is being used
+                                      1,  # which channel is being controlled
+                                      0,  # which pressure is being set
+                                      byref(self.Calib), 1000  # calibration (do not touch)
+                                      )
+        ob1_error_msg = OB1_Set_Press(self.OB1.value,  # which OB-1 is being used
+                                      1,  # which channel is being controlled
+                                      0,  # which pressure is being set
+                                      byref(self.Calib), 1000  # calibration (do not touch)
+                                      )
+
+        print('Cruise control stopped')
         return
 
     # check the safeguards, cut off the pressure if conditions met
@@ -955,6 +945,104 @@ class OB1_manager:
         # return the pressure to feed to the system
         return p
 
+    # PLOTTING THE CRUISE CONTROL DATA ---------------------------------------------------------------------------------
+    # general function for plotting data
+    def plot_cc_data(self,
+                     # variables plotted always
+                     data_time,  # time since cruise control start
+                     data_p,     # pressure (measured at source)
+                     data_flow,  # flow rate (measured at the outlet)
+                     data_ref,   # reference flow rate
+                     # pressure and flow plot ranges
+                     p_range=(-10, 2000),  # pressure range
+                     flow_range=(-10, 80),  # flow rate range
+                     # output file name
+                     plotfilename='OB1_PID_log.png',
+                     # show safeguards or not?
+                     show_safeguards=False,
+                     ):
+        # if showing safeguards, initialise hatches depicting them
+        if(show_safeguards):
+            safeguard_hatches = ['/', '\\', '|', '-', '+', 'x', 'o', 'O', '.', '*']
+
+        # initialise the figure with subplots
+        fig, axs = plt.subplots(nrows=2, ncols=1)
+
+        # plot the flow and reference flow in the same subfigure using matplotlib
+        # plot formatting
+        axs[0].grid()
+        axs[0].set_ylim(bottom=flow_range[0], top=flow_range[1])
+        # plot itself
+        axs[0].plot(data_time, data_flow, label='Flow',
+                    linestyle='-', color='navy')
+        axs[0].plot(data_time, data_ref, label='Reference flow',
+                    linestyle='--', color='steelblue')
+        axs[0].set_xlabel('Time since cruise control start (s)')
+        axs[0].set_ylabel('Flow rate (ul/min)')
+        axs[0].legend(loc='upper left')
+        # show safeguards if asked to do so
+        if(show_safeguards):
+            for i in range(0,self.num_safeguards):
+                if(self.flow_lnub[i]==-1):
+                    axs[0].axhspan(flow_range[0], self.flow_bounds[i],
+                                   facecolor='grey', alpha=0.5, hatch=safeguard_hatches[i])
+                elif(self.flow_lnub[i]==1):
+                    axs[0].axhspan(self.flow_bounds[i], flow_range[1],
+                                   facecolor='grey', alpha=0.5, hatch=safeguard_hatches[i])
+
+        # plot the pressure in a separate subfigure
+        # plot formatting
+        axs[1].grid()
+        axs[1].set_ylim(bottom=p_range[0], top=p_range[1])
+        # plot
+        axs[1].plot(data_time, data_p, label='Pressure',
+                    linestyle='-', color='firebrick')
+        axs[1].set_xlabel('Time since cruise control start (s)')
+        axs[1].set_ylabel('Pressure (mbar)')
+        axs[1].legend(loc='upper left')
+        # show safeguards if asked to do so
+        if(show_safeguards):
+            for i in range(0,self.num_safeguards):
+                if(self.p_lnub[i]==-1):
+                    axs[1].axhspan(p_range[0], self.p_bounds[i],
+                                   facecolor='grey', alpha=0.5, hatch=safeguard_hatches[i])
+                elif(self.p_lnub[i]==1):
+                    axs[1].axhspan(self.p_bounds[i], p_range[1],
+                                   facecolor='grey', alpha=0.5, hatch=safeguard_hatches[i])
+
+        # adjust the layout
+        fig.tight_layout(pad=2.0)
+        # save figure
+        plt.savefig(plotfilename)
+        return
+
+    # plot the shrt-term memory
+    def plot_stmemo(self,
+                    plotfilename='OB1_PID_log.png'):
+        self.plot_cc_data(self.stmemo_time, self.stmemo_p, self.stmemo_flow, self.stmemo_ref,
+                          plotfilename=plotfilename)
+        return
+
+    # plot the logged data from a file
+    def plot_log(self,
+                 logfilename='OB1_PID_log.csv',
+                 plotfilename='OB1_PID_log.png',
+                 # show safeguards or not?
+                 show_safeguards=False,
+                 ):
+        # read the log file
+        log_df = pd.read_csv(logfilename)   # get the dataframe from csv
+        log_time = log_df['Time (s)'].to_numpy()
+        log_p = log_df['Pressure (mbar)'].to_numpy()
+        log_flow = log_df['Flow (ul/min)'].to_numpy()
+        log_ref = log_df['Reference flow (ul/min)'].to_numpy()
+
+        # plot the data
+        self.plot_cc_data(log_time, log_p, log_flow, log_ref,
+                          plotfilename=plotfilename,
+                          show_safeguards=show_safeguards)
+        return
+
 
 # MAIN FUNCTION --------------------------------------------------------------------------------------------------------
 def main():
@@ -964,8 +1052,12 @@ def main():
     # begin cruise control
     Kenobi.cruise_control()
 
-    # end cruise control
-    Kenobi.stop_cruise_control()
+    # plot the short-term memory at the end
+    Kenobi.plot_stmemo(plotfilename='OB1_PID_final_stmemo.png')
+
+    # plot the logged data
+    Kenobi.plot_log(show_safeguards=True)
+
     return
 
 
