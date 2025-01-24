@@ -1,11 +1,12 @@
 # PID_EXPERIMENT.PY
-# Run a regular mother machine experiment with PI control (D control currently unsupported by Elveflow)
+# Run a regular mother machine experiment with PID control
 
 # IMPORTS --------------------------------------------------------------------------------------------------------------
 # PYTHON PACKAGES
 import time
 import numpy as np, pandas as pd
 import matplotlib, matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
 import threading
 import tkinter, tkinter.filedialog
 import os
@@ -25,6 +26,7 @@ class OB1_manager:
     # INITIALISATION AND SETUP -----------------------------------------------------------------------------------------
     # initialise (guides the user through setting up the microfluidics)
     def __init__(self):
+        print('!!! WARNING: D-CONTROL NOT IMPLEMENTED, SETTING D GAINS DOES NOTHING !!!')
         from_file = input('Do you want to load settings from a saved file? (yes, no) : ')
         if (from_file == 'yes'):
             # select the file
@@ -84,6 +86,7 @@ class OB1_manager:
                 if(ob1_error_msg != 0):
                     print('OB-1 calibration error: %d' % ob1_error_msg)
                     exit(1)
+                print('!')
                 ob1_error_msg = Elveflow_Calibration_Save(
                     Calib_path.encode('ascii'),
                     byref(self.Calib), 1000)
@@ -104,7 +107,7 @@ class OB1_manager:
         if(still_todo['OB-1 CHANNEL']):
             self.ch = c_int32(int(input('Select the pressure and sensor channel to use (1, 2) : ')))
         else:
-            print('(Channel number loaded from file - is %d)' % self.ch.value)
+            print('(Channel number loaded from file is %d)' % self.ch.value)
         print('Adding the flow sensor...')
         ob1_error_msg = OB1_Add_Sens(self.OB1,  # which OB-1 is being used
                                      self.ch.value,  # the selected channel
@@ -119,28 +122,30 @@ class OB1_manager:
             exit(1)
 
         # print('\nFILL THE TUBING') # -----------------------------------------------------------------------------------
-        self.fill_tubing()
+        tubing_filled = input('Is your tubing filled with liquid now? (yes, no) : ')
+        if(tubing_filled=='no'):
+            print('Tubing-filling walkthrough initiated')
+            self.fill_tubing()
 
         print('\nSET UP THE FLOW CONTROLLER') # ------------------------------------------------------------------------
         if(still_todo['FLOW CONTROLLER']):
             self.ref_flow = c_double(float(input('Specify the reference flow rate (ul/min) : ')))
             self.p_gain = float(input('Specify the flow controller\'s P gain : '))
             self.i_gain = float(input('Specify the flow controller\'s I gain : '))
-            # self.d_gain = float(input('Specify the flow controller\'s D gain : '))  # D CONTROL CURRENTLY UNSUPPORTED BY ELVEFLOW
+            self.d_gain = float(input('Specify the flow controller\'s D gain : '))
             self.min_flerrint = float(input('Input error integral lower bound for anti-windup (uL) : '))
             self.max_flerrint = float(input('Input error integral upper bound for anti-windup (uL) : '))
             set_p_bounds = input('Would you like to set non-default bounds on pressure? (yes, no) : ')
             if(set_p_bounds=='yes'):
-                self.min_p_ctrl = float(input('Specify the minimum pressure control bound (mbar) : '))
+                self.min_press_ctrl = float(input('Specify the minimum pressure control bound (mbar) : '))
                 self.max_p_ctrl = float(input('Specify the maximum pressure control bound (mbar) : '))
             else:
                 # if bounds are not specified, set them to default, i.e. physically possible values
-                self.min_p_ctrl = 0.0
+                self.min_press_ctrl = 0.0
                 self.max_p_ctrl = 2000.0
         else:
             print('(Loaded from file)')
         self.flerrint = 0.0 # initialise with zero error integral
-        self.remote = False # REMOTE CONTROL CURRENTLY NOT WORKING
 
         print('\nSET OB1-COMPUTER INTERACTION PREFERENCES')  # ---------------------------------------------------------
         if(still_todo['OB1-COMPUTER INTERACTIONS']):
@@ -156,6 +161,10 @@ class OB1_manager:
             self.stmemo_flow = []
             self.stmemo_time = []
             self.stmemo_ref = []
+            # initialise the short-term memory for controller gains
+            self.stmemo_p_gain = []
+            self.stmemo_i_gain = []
+            self.stmemo_d_gain = []
         else:
             print('(Loaded from file)')
 
@@ -172,14 +181,25 @@ class OB1_manager:
         # GET READY TO DO CRUISE CONTROL -------------------------------------------------------------------------------
         self.doing_cruise_control = False
         self.logfilepath = ''
-        # create OB-1 interaction thread
-        self.OB1_thread = threading.Thread(target=self.cruise_control_OB1, daemon=True)
-        # create user input thread
-        self.user_thread = threading.Thread(target=self.cruise_control_user, daemon=True)
+
         # create a queue of user commands for the OB-1 thread
         self.user_cmd_queue = queue.Queue()
         # create a queue of messages to be printed when prompted by the OB-1 handler
         self.OB1_print_queue = queue.Queue()
+
+        # create a short term memory locker for safe live plotting
+        self.lock_stmemo = threading.Lock()
+        # create a variable stating a live plotter should be opened
+        self.open_live_plot = False
+        # create a variable stating if a live plotter is running
+        self.live_plot_running = False
+        # create a variable stating if the threads have just been started
+        self.threads_just_started = True
+
+        # create OB-1 interaction thread
+        self.OB1_thread = threading.Thread(target=self.cruise_control_OB1, daemon=True)
+        # create user input thread
+        self.user_thread = threading.Thread(target=self.cruise_control_user, daemon=True)
 
         return
 
@@ -229,9 +249,6 @@ class OB1_manager:
                     still_todo['FLOW CONTROLLER'] = False
                     curr_line = next_meaningful_line(curr_line)
 
-                    # see if we're running a remote control loop
-                    self.remote = bool(int(lines[curr_line].split()[2]))
-                    curr_line = next_meaningful_line(curr_line)
                     # get the reference flow
                     self.ref_flow = float(lines[curr_line].split()[2])
                     curr_line = next_meaningful_line(curr_line)
@@ -242,27 +259,26 @@ class OB1_manager:
                     self.i_gain = float(lines[curr_line].split()[2])
                     curr_line = next_meaningful_line(curr_line)
                     # get the D gain
-                    # self.d_gain = float(lines[curr_line].split()[2])    # D CONTROL CURRENTLY UNSUPPORTED BY ELVEFLOW
-                    # curr_line = next_meaningful_line(curr_line)
+                    self.d_gain = float(lines[curr_line].split()[2])
+                    curr_line = next_meaningful_line(curr_line)
 
-                    # PARAMETERS FOR NON-REMOTE CONTROL ONLY
-                    if not(self.remote):
-                        # get the anti-windup bounds for error integral, if any specified
-                        if(lines[curr_line].split()[0]=='min_flerrint'):
-                            self.min_flerrint = float(lines[curr_line].split()[2])
-                            curr_line = next_meaningful_line(curr_line)
-                            self.max_flerrint = float(lines[curr_line].split()[2])
-                            curr_line = next_meaningful_line(curr_line)
-                        # get the user-defined pressure control bounds, if any specified
-                        if(lines[curr_line].split()[0]=='min_p_ctrl'):
-                            self.min_p_ctrl = float(lines[curr_line].split()[2])
-                            curr_line = next_meaningful_line(curr_line)
-                            self.max_p_ctrl = float(lines[curr_line].split()[2])
-                            curr_line = next_meaningful_line(curr_line)
-                        else:
-                            # if bounds are not specified, set them to default
-                            self.min_p_ctrl = 0.0
-                            self.max_p_ctrl = 2000.0
+                    # PARAMETERS FOR CONTROL
+                    # get the anti-windup bounds for error integral, if any specified
+                    if(lines[curr_line].split()[0]=='min_flerrint'):
+                        self.min_flerrint = float(lines[curr_line].split()[2])
+                        curr_line = next_meaningful_line(curr_line)
+                        self.max_flerrint = float(lines[curr_line].split()[2])
+                        curr_line = next_meaningful_line(curr_line)
+                    # get the user-defined pressure control bounds, if any specified
+                    if(lines[curr_line].split()[0]=='min_press_ctrl'):
+                        self.min_press_ctrl = float(lines[curr_line].split()[2])
+                        curr_line = next_meaningful_line(curr_line)
+                        self.max_p_ctrl = float(lines[curr_line].split()[2])
+                        curr_line = next_meaningful_line(curr_line)
+                    else:
+                        # if bounds are not specified, set them to default
+                        self.min_press_ctrl = 0.0
+                        self.max_p_ctrl = 2000.0
 
                     # skip the 'END FLOW CONTROLLER' marker line
                     curr_line = next_meaningful_line(curr_line)
@@ -289,6 +305,10 @@ class OB1_manager:
                     self.stmemo_flow = []
                     self.stmemo_time = []
                     self.stmemo_ref = []
+                    # initialise the short-term memory for controller gains
+                    self.stmemo_p_gain = []
+                    self.stmemo_i_gain = []
+                    self.stmemo_d_gain = []
 
                     # skip the 'END OB1-COMPUTER INTERACTIONS' marker line
                     curr_line = next_meaningful_line(curr_line)
@@ -621,16 +641,17 @@ class OB1_manager:
             file.write('\n')
 
             file.write('FLOW CONTROLLER\n')
-            file.write('remote = ' + str(int(self.remote)) + '\n')
+            # initial reference setpoint
             file.write('ref_flow = ' + str(self.ref_flow) + ' ul/min\n')
+            # controller gain
             file.write('p_gain = ' + str(self.p_gain) + '\n')
             file.write('i_gain = ' + str(self.i_gain) + '\n')
-            # file.write('d_gain = ' + str(self.d_gain) + '\n') # D CONTROL CURRENTLY UNSUPPORTED BY ELVEFLOW
-            if not(self.remote):
-                file.write('min_flerrint = ' + str(self.min_flerrint) + '\n')
-                file.write('max_flerrint = ' + str(self.max_flerrint) + '\n')
-                file.write('min_p_ctrl = ' + str(self.min_p_ctrl) + ' mbar\n')
-                file.write('max_p_ctrl = ' + str(self.max_p_ctrl) + ' mbar\n')
+            file.write('d_gain = ' + str(self.d_gain) + '\n')
+            # auxiliary controller parameters
+            file.write('min_flerrint = ' + str(self.min_flerrint) + '\n')
+            file.write('max_flerrint = ' + str(self.max_flerrint) + '\n')
+            file.write('min_press_ctrl = ' + str(self.min_press_ctrl) + ' mbar\n')
+            file.write('max_p_ctrl = ' + str(self.max_p_ctrl) + ' mbar\n')
             file.write('END FLOW CONTROLLER\n')
             file.write('\n')
 
@@ -653,23 +674,33 @@ class OB1_manager:
     def cruise_control(self, log_filename=r'OB1_PID_log.csv'):
         # indicate that cruise control is being done
         self.doing_cruise_control = True
+        self.open_live_plot = True  # open a live plot at first
         self.logfilepath = os.path.abspath(log_filename)
         # start writing the log file
         with(open(self.logfilepath, 'w', newline='')) as logfile:
             logwriter = csv.writer(logfile)
-            logwriter.writerow(['Time (s)', 'Pressure (mbar)', 'Flow (ul/min)', 'Reference flow (ul/min)'])
+            logwriter.writerow(['Time (s)', 'Pressure (mbar)', 'Flow (ul/min)', 'Reference flow (ul/min)',
+                                'P gain', 'I gain', 'D gain'])
 
         # start the threads
+        self.threads_just_started = True
         self.OB1_thread.start()
         self.user_thread.start()
+        self.threads_just_started = False
 
         # keep the main thread alive
         try:
             while self.doing_cruise_control:
-                time.sleep(self.dt_check)
+                # open a live plot in the main thread if prompted
+                if(self.open_live_plot):
+                    self.open_live_plot = False
+                    self.live_plot_running = True
+                    self.live_stmemo_plot()
+                    self.live_plot_running = False
+                time.sleep(self.dt_check)  # sleep for the check time if not kept alive by a live plot
         except KeyboardInterrupt:
             self.stop_cruise_control()
-            print('Cruise control keyboard-interrupted')
+            print('Keyboard-interrupted')
 
         return
 
@@ -677,33 +708,6 @@ class OB1_manager:
     def cruise_control_OB1(self):
         cc_start_time = time.time() # start time of cruise control
         cc_check_cntr = 0 # counter for how many times the computer has checked on the OB-1
-
-        # SET UP THE REMOTE PI(D?) LOOP - REMOTE LOOP CURRENTLY NOT WORKING
-        if(self.remote):
-            ob1_error_msg = OB1_Start_Remote_Measurement(self.OB1.value,    # which OB-1 is being used
-                                                         byref(self.Calib), 1000)    # Calibration (do not touch)
-            if(ob1_error_msg != 0):
-                print('Remote measurement initiation error: %d' % ob1_error_msg)
-                exit(1)
-            # start the onsite PI controller
-            ob1_error_msg = PID_Add_Remote(self.OB1.value,  # which OB-1 is being used for pressure supply
-                                   self.ch,         # which channel of this OB-1 is being controlled
-                                   self.OB1.value,  # which OB-1 is being used for flow sensing
-                                   self.ch,         # which channel of this OB-1 is being used for flow sensing
-                                   self.p_gain,     # P gain
-                                   self.i_gain,     # I gain
-                                   # self.d_gain,   # D CONTROL CURRENTLY UNSUPPORTED BY ELVEFLOW
-                                   1)               # 1 if run, 0 if stop
-            if(ob1_error_msg != 0):
-                print('PID controller initiation error: %d' % ob1_error_msg)
-                exit(1)
-            # set the reference
-            ob1_error_msg = OB1_Set_Remote_Target(self.OB1.value,   # which OB-1 is being used
-                                          self.ch,          # which channel is being controlled
-                                          self.ref_flow)    # reference flow rate
-            if(ob1_error_msg != 0):
-                print('Reference flow setting error: %d' % ob1_error_msg)
-                exit(1)
 
         while self.doing_cruise_control:
             # HANDLE THE USER INPUT, IF ANY
@@ -720,74 +724,45 @@ class OB1_manager:
                     # get the gains
                     self.p_gain = user_cmd_arg0
                     self.i_gain = user_cmd_arg1
-                    # self.d_gain = user_cmd_arg2   # D CONTROL CURRENTLY UNSUPPORTED BY ELVEFLOW
+                    self.d_gain = user_cmd_arg2
 
-                    # SET THE REMOTE LOOP GAINS, IF IT'S RUNNING
-                    if(self.remote):
-                        ob1_error_msg = PID_Set_Gains_Remote(self.OB1.value,  # which OB-1 is being used
-                                                             self.ch,  # which channel is being controlled
-                                                             self.p_gain,  # P gain
-                                                             self.i_gain,  # I gain
-                                                             # self.d_gain,     # D CONTROL CURRENTLY UNSUPPORTED BY ELVEFLOW
-                                                             1)  # 1 if run, 0 if stop
+                elif (user_cmd == 3):   # 3 for opening a live plot
+                    if (self.threads_just_started or self.live_plot_running):  # only open a new live plot if one isn't already running
+                        print('Live plot already running!')
+                    else:
+                        self.open_live_plot = True
             except:
                 pass
 
             # GET READINGS FROM THE OB-1
             # get the time of the check - NOT from the start of cruise control
             t_check_absolute = time.time()
+            t_check_relative = t_check_absolute-cc_start_time
             # read the pressure and flow...
             p_read_c_double = c_double()  # initialise pressure reading
             flow_read_c_double = c_double()  # initialise flow reading
-            # ...FROM THE REMOTE LOOP, IF IT'S RUNNING
-            if(self.remote):
-                print('You shouldn\'t be here...')
-                # NOT WORKING, AND WHEN WE TRY TO MAKE IT WORK, WILL HAVE TO USE GET_REMOTE_DATA INSTEAD OF GET_PRESS AND GET_SENS
-                # # pressure
-                # ob1_error_msg = OB1_Get_Press(self.OB1.value,  # which OB-1 is being used
-                #                       self.ch,  # which channel pressure is being read
-                #                       1,
-                #                       # 1 means all pressure and analog sensor readings actually measured, not taken for memory. Irrelevant for digital sensors
-                #                       byref(self.Calib),  # calibration (do not touch)
-                #                       byref(p_read),  # where to write the data
-                #                       1000  # calibration (do not touch)
-                #                       )
-                # if(ob1_error_msg != 0):
-                #     print('Remote pressure measurement error: %d' % ob1_error_msg)
-                #     exit(1)
-                # # flow
-                # ob1_error_msg = OB1_Get_Sens(self.OB1.value,  # which OB-1 is being used
-                #                              self.ch,  # which channel sensor is being read
-                #                              byref(flow_read),  # where to write the data
-                #                              1000  # calibration (do not touch)
-                #                              )
-                # if (ob1_error_msg != 0):
-                #     print('Remote flow measurement error: %d' % ob1_error_msg)
-                #     exit(1)
-            # ...OR DIRECTLY, IF DOING PI(D?) CONTROL ON SITE
-            else:
-                # pressure
-                ob1_error_msg = OB1_Get_Press(self.OB1.value,  # which OB-1 is being used
-                                      self.ch,              # which channel pressure is being read
-                                      1,                    # 1 means all pressure and analog sensor readings actually measured, not taken for memory. Irrelevant for digital sensors
-                                      byref(self.Calib),    # calibration (do not touch)
-                                      byref(p_read_c_double),        # where to write the data
-                                      1000                  # calibration (do not touch)
-                                      )
-                if(ob1_error_msg != 0):
-                    print('Pressure measurement error: %d' % ob1_error_msg)
-                    exit(1)
-                p_read = p_read_c_double.value
-                # flow
-                ob1_error_msg = OB1_Get_Sens_Data(self.OB1.value,  # which OB-1 is being used
-                                  self.ch,  # which sensor is being read
-                                  1,    # 1 means all pressure and analog sensor readings actually measured, not taken for memory. Irrelevant for digital sensors
-                                  byref(flow_read_c_double)  # where to write the data
-                                  )  # Acquire_data=1 -> read all the analog values
-                if (ob1_error_msg != 0):
-                    print('Flow measurement error: %d' % ob1_error_msg)
-                    exit(1)
-                flow_read = flow_read_c_double.value
+            # pressure
+            ob1_error_msg = OB1_Get_Press(self.OB1.value,  # which OB-1 is being used
+                                  self.ch,              # which channel pressure is being read
+                                  1,                    # 1 means all pressure and analog sensor readings actually measured, not taken for memory. Irrelevant for digital sensors
+                                  byref(self.Calib),    # calibration (do not touch)
+                                  byref(p_read_c_double),        # where to write the data
+                                  1000                  # calibration (do not touch)
+                                  )
+            if(ob1_error_msg != 0):
+                print('Pressure measurement error: %d' % ob1_error_msg)
+                exit(1)
+            p_read = p_read_c_double.value
+            # flow
+            ob1_error_msg = OB1_Get_Sens_Data(self.OB1.value,  # which OB-1 is being used
+                              self.ch,  # which sensor is being read
+                              1,    # 1 means all pressure and analog sensor readings actually measured, not taken for memory. Irrelevant for digital sensors
+                              byref(flow_read_c_double)  # where to write the data
+                              )  # Acquire_data=1 -> read all the analog values
+            if (ob1_error_msg != 0):
+                print('Flow measurement error: %d' % ob1_error_msg)
+                exit(1)
+            flow_read = flow_read_c_double.value
 
             # CHECK THE SAFEGUARDS, CUT OFF THE PRESSURE IF NEEDED
             cutoff_condition_true, which_cutoff_condition = self.check_safeguards()
@@ -797,38 +772,46 @@ class OB1_manager:
                 print('\n\t' + self.safeguard_conds[which_cutoff_condition])
                 break
 
-            # DO PI(D?) CONTROL ON SITE IF NOT RUNNING A REMOTE LOOP
-            if not(self.remote):
-                # calculate pressure to supply to the channel
-                p = self.PI_controller(flow_read)
-                p_c_double = c_double(p)
-                # set the calculated pressure on the OB-1
-                ob1_error_msg = OB1_Set_Press(self.OB1.value,  # which OB-1 is being used
-                                              self.ch,  # which channel is being controlled
-                                              p_c_double,  # which pressure is being set
-                                              byref(self.Calib), 1000  # calibration (do not touch)
-                                              )
-                if(ob1_error_msg != 0):
-                    print('Pressure setting error: %d' % ob1_error_msg)
-                    exit(1)
+            # DO PI(D?) CONTROL
+            # calculate pressure to supply to the channel
+            p = self.PID_controller(flow_read, t_check_relative)
+            p_c_double = c_double(p)
+            # set the calculated pressure on the OB-1
+            ob1_error_msg = OB1_Set_Press(self.OB1.value,  # which OB-1 is being used
+                                          self.ch,  # which channel is being controlled
+                                          p_c_double,  # which pressure is being set
+                                          byref(self.Calib), 1000  # calibration (do not touch)
+                                          )
+            if(ob1_error_msg != 0):
+                print('Pressure setting error: %d' % ob1_error_msg)
+                exit(1)
 
             # RECORD THE DATA IN SHORT-TERM MEMORY
-            self.stmemo_time.append(t_check_absolute-cc_start_time) # time SINCE THE START OF CRUISE CONTROL
-            self.stmemo_p.append(p_read)
-            self.stmemo_flow.append(flow_read)
-            self.stmemo_ref.append(self.ref_flow)
-            # pop the oldest readings if short-term memory is full
-            if(len(self.stmemo_p)>self.short_term_memo_size):
-                self.stmemo_p.pop(0)
-                self.stmemo_flow.pop(0)
-                self.stmemo_time.pop(0)
-                self.stmemo_ref.pop(0)
+            with self.lock_stmemo:
+                self.stmemo_time.append(t_check_relative) # time SINCE THE START OF CRUISE CONTROL
+                self.stmemo_p.append(p_read)
+                self.stmemo_flow.append(flow_read)
+                self.stmemo_ref.append(self.ref_flow)
+                self.stmemo_p_gain.append(self.p_gain)
+                self.stmemo_i_gain.append(self.i_gain)
+                self.stmemo_d_gain.append(self.d_gain)
+                # pop the oldest readings if short-term memory is full
+                if(len(self.stmemo_p)>self.short_term_memo_size):
+                    self.stmemo_p.pop(0)
+                    self.stmemo_flow.pop(0)
+                    self.stmemo_time.pop(0)
+                    self.stmemo_ref.pop(0)
+                    self.stmemo_p_gain.pop(0)
+                    self.stmemo_i_gain.pop(0)
+                    self.stmemo_d_gain.pop(0)
 
             # LOG THE DATA IF IT'S TIME TO DO SO
             if(cc_check_cntr % self.log_every_points == 0):
                 with open(self.logfilepath, 'a', newline='') as logfile:
                     logwriter = csv.writer(logfile)
-                    logwriter.writerow([self.stmemo_time[-1], self.stmemo_p[-1], self.stmemo_flow[-1], self.stmemo_ref[-1]])
+                    with self.lock_stmemo:
+                        logwriter.writerow([self.stmemo_time[-1], self.stmemo_p[-1], self.stmemo_flow[-1], self.stmemo_ref[-1],
+                                            self.stmemo_p_gain[-1], self.stmemo_i_gain[-1], self.stmemo_d_gain[-1]],)
 
             # UPDATE THE CHECK COUNTER AND WAIT FOR THE NEXT CHECK
             cc_check_cntr += 1
@@ -847,7 +830,9 @@ class OB1_manager:
                 pass
 
             # User input
-            user_cmd = input("What do you want to do? (stop, set_ref, set_gains): ")
+            cmds_on_offer = 'stop, set_ref, set_gains, live_plot'
+
+            user_cmd = input('What do you want to do? ('+cmds_on_offer+'): ')
 
             if(user_cmd=='stop'):   # stop the cruise control
                 print('Stopping cruise control...')
@@ -861,24 +846,21 @@ class OB1_manager:
             elif(user_cmd=='set_gains'):  # set the PI(D?) gains
                 p_gain = float(input("Specify the new P gain: "))
                 i_gain = float(input("Specify the new I gain: "))
-                # d_gain = float(input("Specify the new D gain: "))  # D CONTROL CURRENTLY UNSUPPORTED BY ELVEFLOW
+                d_gain = float(input("Specify the new D gain: "))
                 self.user_cmd_queue.put((2,                 # command code: 2 for changing the PI(D?) gains
                                          # args
                                          p_gain,            # zeroth arg is the new P gain
                                          i_gain,            # first arg is the new I gain
-                                         0))                # second arg is the new D gain - BUT D CONTROL CURRENTLY UNSUPPORTED BY ELVEFLOW
+                                         d_gain))                # second arg is the new D gain
+            elif(user_cmd=='live_plot'):  # open a live plot
+                self.user_cmd_queue.put((3,  # command code: 3 for stopping the cruise control
+                                         0, 0, 0))  # args: irrelevant for cmd 0
+
         return
 
     # stop cruise control
     def stop_cruise_control(self):
         self.doing_cruise_control = False
-
-        # STOP THE REMOTE LOOP, IF RUNNING IT - REMOTE LOOP CURRENTLY NOT WORKING
-        if (self.remote):
-            ob1_error_msg = OB1_Stop_Remote_Measurement(self.OB1.value)
-            ob1_error_msg = PID_Set_Running_Remote(self.OB1.value,  # which OB-1 is being used
-                                                   self.ch,  # which channel is being controlled
-                                                   0)  # 1 if run, 0 if stop
 
         # set all pressures to zero
         ob1_error_msg = OB1_Set_Press(self.OB1.value,  # which OB-1 is being used
@@ -927,8 +909,8 @@ class OB1_manager:
             # return whether any cutoff condition is true and the index of the condition
             return any_cutoff_condition_true, i
 
-    # PI control signal calculator
-    def PI_controller(self, flow):
+    # PID control signal calculator
+    def PID_controller(self, flow, t_check):
         # calculate the flow error
         flerr = self.ref_flow - flow
 
@@ -937,15 +919,109 @@ class OB1_manager:
         # limit the integral term for anti-windup
         self.flerrint=max(self.min_flerrint, min(flerrint, self.max_flerrint))
 
+        # get the derivative component - for the flow itself to avoid kicks as the reference changes
+        if(len(self.stmemo_flow)>=1):
+            flder = (flow - self.stmemo_flow[-1])/(t_check - self.stmemo_time[-1])
+        else:
+            flder = 0
+
         # calculate the pressure to supply
-        p_calc = self.p_gain*flerr + self.i_gain*self.flerrint
+        p_calc = self.p_gain*flerr + self.i_gain*self.flerrint + self.d_gain*flder
         # clip the pressure to physically possible values (0-2000 mbar) and/or user-defined values
-        p = max(max(0, self.min_p_ctrl), min(p_calc, self.max_p_ctrl, self.max_p_ctrl))
+        p = max(max(0, self.min_press_ctrl), min(p_calc, self.max_p_ctrl, self.max_p_ctrl))
 
         # return the pressure to feed to the system
         return p
 
-    # PLOTTING THE CRUISE CONTROL DATA ---------------------------------------------------------------------------------
+    # LIVE PLOTTING OF THE CRUISE CONTROL DATA -------------------------------------------------------------------------
+    # plot the short-term memory during cruise control
+    def live_stmemo_plot(self):
+        plt.ion()  # Turn on interactive mode
+        fig_live, axs_live = plt.subplots(nrows=2, ncols=2,
+                                          width_ratios=[2, 1], height_ratios=[1, 1])
+        axs_live[1,1].axis('off')
+        # adjust the layout
+        fig_live.tight_layout(pad=2.0)
+
+        # plot the flow and reference flow in the same subfigure using matplotlib
+        # plot formatting
+        axs_live[0,0].grid()
+        axs_live[0,0].set_ylim(bottom=-5, top=120)
+        axs_live[0,0].set_xlabel('Time since cruise control start (s)')
+        axs_live[0,0].set_ylabel('Flow rate (ul/min)')
+        # start live plot lines for flow and reference flow
+        flow_line_live, = axs_live[0,0].plot([], [], label='Flow',
+                                      linestyle='-', color='navy')
+        ref_line_live, = axs_live[0,0].plot([], [], label='Reference flow',
+                                     linestyle='--', color='steelblue')
+        # show legend
+        axs_live[0,0].legend(loc='upper left')
+
+        # plot the pressure in a separate subfigure
+        # plot formatting
+        axs_live[1,0].grid()
+        axs_live[1,0].set_ylim(bottom=0, top=2000)
+        # plot
+        axs_live[1,0].set_xlabel('Time since cruise control start (s)')
+        axs_live[1,0].set_ylabel('Pressure (mbar)')
+        # start live plot line for pressure
+        p_line_live, = axs_live[1,0].plot([], [], label='Pressure',
+                                   linestyle='-', color='firebrick')
+        # show legend
+        axs_live[1,0].legend(loc='upper left')
+
+        # plot the PI(D?) gains in the third subfigure
+        # plot formatting
+        axs_live[0,1].grid()
+        # start live plot lines for the gains
+        p_gain_line_live, = axs_live[0,1].plot([], [], label='P gain',
+                                        linestyle='-', color='darkviolet', alpha=0.5)
+        i_gain_line_live, = axs_live[0,1].plot([], [], label='I gain',
+                                        linestyle='-', color='darkorange', alpha=0.5)
+        d_gain_line_live, = axs_live[0,1].plot([], [], label='D gain',
+                                        linestyle='-', color='lightseagreen', alpha=0.5)
+        # show legend
+        axs_live[0,1].legend(loc='upper left')
+
+
+        # define the plot updater function
+        def live_plot_updater(frames):
+            with (self.lock_stmemo):
+                # update the flow and reference flow plot
+                flow_line_live.set_data(self.stmemo_time, self.stmemo_flow)
+                ref_line_live.set_data(self.stmemo_time, self.stmemo_ref)
+                axs_live[0,0].relim()
+                axs_live[0,0].autoscale_view()
+
+                # update the pressure plot
+                p_line_live.set_data(self.stmemo_time, self.stmemo_p)
+                axs_live[1,0].relim()
+                axs_live[1,0].autoscale_view()
+
+                # update the PI(D?) gains plot
+                p_gain_line_live.set_data(self.stmemo_time, self.stmemo_p_gain)
+                i_gain_line_live.set_data(self.stmemo_time, self.stmemo_i_gain)
+                d_gain_line_live.set_data(self.stmemo_time, self.stmemo_d_gain)
+                axs_live[0,1].relim()
+                axs_live[0,1].autoscale_view()
+
+                return flow_line_live, ref_line_live, p_line_live, \
+                    p_gain_line_live, i_gain_line_live, d_gain_line_live
+
+        # create the animator
+        ani = FuncAnimation(fig_live, live_plot_updater, interval=1000, blit=False,
+                            save_count=0,
+                            cache_frame_data=False)
+
+        # show the live plot
+        try:
+            plt.show(block=True)
+        except KeyboardInterrupt:
+            self.stop_cruise_control()
+            print('Keyboard-interrupted')
+        return
+
+    # POST-FACTUM PLOTTING THE CRUISE CONTROL DATA ---------------------------------------------------------------------
     # general function for plotting data
     def plot_cc_data(self,
                      # variables plotted always
@@ -953,6 +1029,7 @@ class OB1_manager:
                      data_p,     # pressure (measured at source)
                      data_flow,  # flow rate (measured at the outlet)
                      data_ref,   # reference flow rate
+                     data_gains, # P, I, D gains
                      # pressure and flow plot ranges
                      p_range=(-10, 2000),  # pressure range
                      flow_range=(-10, 80),  # flow rate range
@@ -961,54 +1038,68 @@ class OB1_manager:
                      # show safeguards or not?
                      show_safeguards=False,
                      ):
+        plt.ioff()  # Turn off interactive mode
         # if showing safeguards, initialise hatches depicting them
         if(show_safeguards):
             safeguard_hatches = ['/', '\\', '|', '-', '+', 'x', 'o', 'O', '.', '*']
 
         # initialise the figure with subplots
-        fig, axs = plt.subplots(nrows=2, ncols=1)
-
+        fig, axs = plt.subplots(nrows=2, ncols=2,
+                                width_ratios=[2, 1], height_ratios=[1, 1])
+        axs[1,1].axis('off')
         # plot the flow and reference flow in the same subfigure using matplotlib
         # plot formatting
-        axs[0].grid()
-        axs[0].set_ylim(bottom=flow_range[0], top=flow_range[1])
+        axs[0,0].grid()
+        axs[0,0].set_ylim(bottom=flow_range[0], top=flow_range[1])
         # plot itself
-        axs[0].plot(data_time, data_flow, label='Flow',
+        axs[0,0].plot(data_time, data_flow, label='Flow',
                     linestyle='-', color='navy')
-        axs[0].plot(data_time, data_ref, label='Reference flow',
+        axs[0,0].plot(data_time, data_ref, label='Reference flow',
                     linestyle='--', color='steelblue')
-        axs[0].set_xlabel('Time since cruise control start (s)')
-        axs[0].set_ylabel('Flow rate (ul/min)')
-        axs[0].legend(loc='upper left')
+        axs[0,0].set_xlabel('Time since cruise control start (s)')
+        axs[0,0].set_ylabel('Flow rate (ul/min)')
+        axs[0,0].legend(loc='upper left')
         # show safeguards if asked to do so
         if(show_safeguards):
             for i in range(0,self.num_safeguards):
                 if(self.flow_lnub[i]==-1):
-                    axs[0].axhspan(flow_range[0], self.flow_bounds[i],
+                    axs[0,0].axhspan(flow_range[0], self.flow_bounds[i],
                                    facecolor='grey', alpha=0.5, hatch=safeguard_hatches[i])
                 elif(self.flow_lnub[i]==1):
-                    axs[0].axhspan(self.flow_bounds[i], flow_range[1],
+                    axs[0,0].axhspan(self.flow_bounds[i], flow_range[1],
                                    facecolor='grey', alpha=0.5, hatch=safeguard_hatches[i])
 
         # plot the pressure in a separate subfigure
         # plot formatting
-        axs[1].grid()
-        axs[1].set_ylim(bottom=p_range[0], top=p_range[1])
+        axs[1,0].grid()
+        axs[1,0].set_ylim(bottom=p_range[0], top=p_range[1])
         # plot
-        axs[1].plot(data_time, data_p, label='Pressure',
+        axs[1,0].plot(data_time, data_p, label='Pressure',
                     linestyle='-', color='firebrick')
-        axs[1].set_xlabel('Time since cruise control start (s)')
-        axs[1].set_ylabel('Pressure (mbar)')
-        axs[1].legend(loc='upper left')
+        axs[1,0].set_xlabel('Time since cruise control start (s)')
+        axs[1,0].set_ylabel('Pressure (mbar)')
+        axs[1,0].legend(loc='upper left')
         # show safeguards if asked to do so
         if(show_safeguards):
             for i in range(0,self.num_safeguards):
                 if(self.p_lnub[i]==-1):
-                    axs[1].axhspan(p_range[0], self.p_bounds[i],
+                    axs[1,0].axhspan(p_range[0], self.p_bounds[i],
                                    facecolor='grey', alpha=0.5, hatch=safeguard_hatches[i])
                 elif(self.p_lnub[i]==1):
-                    axs[1].axhspan(self.p_bounds[i], p_range[1],
+                    axs[1,0].axhspan(self.p_bounds[i], p_range[1],
                                    facecolor='grey', alpha=0.5, hatch=safeguard_hatches[i])
+
+        # # plot the pressure in a separate subfigure
+        axs[0,1].grid()
+        # start live plot lines for the gains
+        p_gain_line_live, = axs[0,1].plot(data_time, data_gains['P'], label='P gain',
+                                             linestyle='-', color='darkviolet', alpha=0.5)
+        i_gain_line_live, = axs[0,1].plot(data_time, data_gains['I'], label='I gain',
+                                             linestyle='-', color='darkorange', alpha=0.5)
+        d_gain_line_live, = axs[0,1].plot(data_time, data_gains['D'], label='D gain',
+                                             linestyle='-', color='lightseagreen', alpha=0.5)
+        # show legend
+        axs[0,1].legend(loc='upper left')
 
         # adjust the layout
         fig.tight_layout(pad=2.0)
@@ -1019,7 +1110,13 @@ class OB1_manager:
     # plot the shrt-term memory
     def plot_stmemo(self,
                     plotfilename='OB1_PID_log.png'):
-        self.plot_cc_data(self.stmemo_time, self.stmemo_p, self.stmemo_flow, self.stmemo_ref,
+        self.plot_cc_data(data_time=self.stmemo_time,
+                          data_p=self.stmemo_p,
+                          data_flow=self.stmemo_flow,
+                          data_ref=self.stmemo_ref,
+                          data_gains={'P': self.stmemo_p_gain,
+                                      'I': self.stmemo_i_gain,
+                                      'D': self.stmemo_d_gain},
                           plotfilename=plotfilename)
         return
 
@@ -1032,13 +1129,19 @@ class OB1_manager:
                  ):
         # read the log file
         log_df = pd.read_csv(logfilename)   # get the dataframe from csv
+        # get the data for time, pressure, flow, and reference flow
         log_time = log_df['Time (s)'].to_numpy()
         log_p = log_df['Pressure (mbar)'].to_numpy()
         log_flow = log_df['Flow (ul/min)'].to_numpy()
         log_ref = log_df['Reference flow (ul/min)'].to_numpy()
+        # get the data for the gains
+        log_gains={'P': log_df['P gain'].to_numpy(),
+                   'I': log_df['I gain'].to_numpy(),
+                   'D': log_df['D gain'].to_numpy()}
 
         # plot the data
         self.plot_cc_data(log_time, log_p, log_flow, log_ref,
+                          log_gains,
                           plotfilename=plotfilename,
                           show_safeguards=show_safeguards)
         return
