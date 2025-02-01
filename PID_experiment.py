@@ -3,7 +3,7 @@
 
 # IMPORTS --------------------------------------------------------------------------------------------------------------
 # PYTHON PACKAGES
-import time
+import time, datetime
 import numpy as np, pandas as pd
 import matplotlib, matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
@@ -26,7 +26,6 @@ class OB1_manager:
     # INITIALISATION AND SETUP -----------------------------------------------------------------------------------------
     # initialise (guides the user through setting up the microfluidics)
     def __init__(self):
-        print('!!! WARNING: D-CONTROL NOT IMPLEMENTED, SETTING D GAINS DOES NOTHING !!!')
         from_file = input('Do you want to load settings from a saved file? (yes, no) : ')
         if (from_file == 'yes'):
             # select the file
@@ -61,9 +60,13 @@ class OB1_manager:
                 if (ob1_error_msg != 0):
                     print('Default calibration error: %d' % ob1_error_msg)
                     exit(1)
-                self.check_calibration()
-                good_calibration=input('Happy with the calibration? (yes, no) : ')
-                if (good_calibration=='yes'):
+                checking_calibration = input('Do you want to check the calibration? (yes, no) : ')
+                if(checking_calibration=='yes'):
+                    self.check_calibration()
+                    good_calibration=input('Happy with the calibration? (yes, no) : ')
+                    if (good_calibration=='yes'):
+                        break
+                else:
                     break
 
             if calib_type == 'load':
@@ -71,9 +74,13 @@ class OB1_manager:
                 if (ob1_error_msg != 0):
                     print('Calibration loading error: %d' % ob1_error_msg)
                     exit(1)
-                self.check_calibration()
-                good_calibration = input('Happy with the calibration? (yes, no) : ')
-                if (good_calibration == 'yes'):
+                checking_calibration = input('Do you want to check the calibration? (yes, no) : ')
+                if (checking_calibration == 'yes'):
+                    self.check_calibration()
+                    good_calibration = input('Happy with the calibration? (yes, no) : ')
+                    if (good_calibration == 'yes'):
+                        break
+                else:
                     break
 
             if calib_type == 'new':
@@ -120,6 +127,7 @@ class OB1_manager:
         if (ob1_error_msg != 0):
             print('Sensor addition error: %d' % ob1_error_msg)
             exit(1)
+        print('Flow sensor added')
 
         # print('\nFILL THE TUBING') # -----------------------------------------------------------------------------------
         tubing_filled = input('Is your tubing filled with liquid now? (yes, no) : ')
@@ -156,11 +164,20 @@ class OB1_manager:
             # convert from logging and remembering times to number of data points
             self.log_every_points = int(self.dt_log / self.dt_check)
             self.short_term_memo_size = int(short_term_memo_time / self.dt_check)+1
+            # initialise the variables for the starting time of cruise control and starting medium volume in the source
+            self.cc_start_time=-1   # for clarity, initialise with an impossible, negative value
+            self.medstart = -1  # for clarity, initialise with an impossible, negative value
             # initialise short-term memory for the pressure, the flow and the measurement times
             self.stmemo_p = []
             self.stmemo_flow = []
             self.stmemo_time = []
-            self.stmemo_ref = []
+            # initialise the short-term memory for estimated medium left in the source
+            self.stmemo_medleft = []
+            # initialise the short-term memory for controller mode
+            self.stmemo_mode = []
+            # initialise the short-term memory for reference flow and constant pressure
+            self.stmemo_ref_flow = []
+            self.stmemo_const_press = []
             # initialise the short-term memory for controller gains
             self.stmemo_p_gain = []
             self.stmemo_i_gain = []
@@ -304,7 +321,12 @@ class OB1_manager:
                     self.stmemo_p = []
                     self.stmemo_flow = []
                     self.stmemo_time = []
-                    self.stmemo_ref = []
+                    # initialise the short-term memory for estimated medium left in the source
+                    self.stmemo_medleft = []
+                    # initialise the short-term memory for controller mode
+                    self.stmemo_mode = []
+                    self.stmemo_ref_flow = []
+                    self.stmemo_const_press = []
                     # initialise the short-term memory for controller gains
                     self.stmemo_p_gain = []
                     self.stmemo_i_gain = []
@@ -633,7 +655,8 @@ class OB1_manager:
 
     # save the starting settings
     def save_settings(self):
-        filename = 'latest_start_settings.txt'
+        date_time_string = (datetime.datetime.now()).strftime("_%d%m_%H%M")
+        filename = 'logs/start_settings'+date_time_string+'.txt'
         with open(filename, 'w') as file:
             file.write('OB-1 CHANNEL\n')
             file.write('ch = ' + str(self.ch) + '\n')
@@ -671,15 +694,25 @@ class OB1_manager:
 
     # CRUISE CONTROL FUNCTIONS -----------------------------------------------------------------------------------------
     # main thread for cruise control of the microfluidic flow
-    def cruise_control(self, log_filename=r'OB1_PID_log.csv'):
+    def cruise_control(self, log_filename=r'logs/OB1_PID_log.csv'):
         # indicate that cruise control is being done
         self.doing_cruise_control = True
         self.open_live_plot = True  # open a live plot at first
         self.logfilepath = os.path.abspath(log_filename)
+
+        # ask how much medium there is in the source
+        self.medstart = float(input('How much medium is there in the source (ml)? : '))
+
+        # start in reference flow tracking mode
+        self.mode = 0
+
         # start writing the log file
         with(open(self.logfilepath, 'w', newline='')) as logfile:
             logwriter = csv.writer(logfile)
-            logwriter.writerow(['Time (s)', 'Pressure (mbar)', 'Flow (ul/min)', 'Reference flow (ul/min)',
+            logwriter.writerow(['Time (s)', 'Pressure (mbar)', 'Flow (ul/min)',
+                                'Medium left (ml)',
+                                'Mode',
+                                'Reference flow (ul/min)', 'Constant pressure (mbar)',
                                 'P gain', 'I gain', 'D gain'])
 
         # start the threads
@@ -706,11 +739,12 @@ class OB1_manager:
 
     # handle interactions and records with the OB-1 during cruise control
     def cruise_control_OB1(self):
-        cc_start_time = time.time() # start time of cruise control
+        self.cc_start_time = time.time() # start time of cruise control
         cc_check_cntr = 0 # counter for how many times the computer has checked on the OB-1
 
         while self.doing_cruise_control:
             # HANDLE THE USER INPUT, IF ANY
+            medleft_new = -1
             try:
                 # get the user command and the argument
                 user_cmd, user_cmd_arg0, user_cmd_arg1, user_cmd_arg2 = self.user_cmd_queue.get_nowait()
@@ -718,26 +752,40 @@ class OB1_manager:
                 if (user_cmd == 0):  # 0 for stopping the cruise control
                     self.stop_cruise_control()
                     break
-                elif (user_cmd == 1):  # 1 for changing reference flow
+
+                elif (user_cmd == 1):  # 1 for setting a new reference flow
+                    if(self.mode==1): # if we have been in the constant pressure mode, indicate the mode's changed now
+                        self.mode = 0
+                        self.OB1_print_queue.put('Mode changed to flow reference tracking')
                     self.ref_flow = user_cmd_arg0
-                elif (user_cmd == 2):  # 2 for changing the PI(D?) gains
+
+                elif (user_cmd == 2):  # 2 for changing the controller mode
+                    if(self.mode==0): # if we have been in the flow reference tracking mode, indicate the mode's changed now
+                        self.mode = 1
+                        self.OB1_print_queue.put('Mode changed to constant pressure')
+                    self.const_press = user_cmd_arg0
+
+                elif (user_cmd == 3):  # 3 for changing the PI(D?) gains
                     # get the gains
                     self.p_gain = user_cmd_arg0
                     self.i_gain = user_cmd_arg1
                     self.d_gain = user_cmd_arg2
 
-                elif (user_cmd == 3):   # 3 for opening a live plot
+                elif (user_cmd == 4):   # 4 for opening a live plot
                     if (self.threads_just_started or self.live_plot_running):  # only open a new live plot if one isn't already running
-                        print('Live plot already running!')
+                        self.OB1_print_queue.put('Live plot already running!')
                     else:
                         self.open_live_plot = True
+
+                elif (user_cmd == 5):  # 5 for changing the medium source
+                    medleft_new = user_cmd_arg0
             except:
                 pass
 
             # GET READINGS FROM THE OB-1
-            # get the time of the check - NOT from the start of cruise control
-            t_check_absolute = time.time()
-            t_check_relative = t_check_absolute-cc_start_time
+            # get the time of measurement
+            t_check_absolute = time.time()  # get the time of the check - NOT from the start of cruise control
+            t_check_relative = t_check_absolute - self.cc_start_time  # convert ti time from the start of cruise control
             # read the pressure and flow...
             p_read_c_double = c_double()  # initialise pressure reading
             flow_read_c_double = c_double()  # initialise flow reading
@@ -774,7 +822,10 @@ class OB1_manager:
 
             # DO PI(D?) CONTROL
             # calculate pressure to supply to the channel
-            p = self.PID_controller(flow_read, t_check_relative)
+            if(self.mode==0):   # flow reference tracking
+                p = self.PID_controller(flow_read, t_check_relative)
+            elif(self.mode==1): # constant pressure
+                p = self.const_press
             p_c_double = c_double(p)
             # set the calculated pressure on the OB-1
             ob1_error_msg = OB1_Set_Press(self.OB1.value,  # which OB-1 is being used
@@ -791,71 +842,120 @@ class OB1_manager:
                 self.stmemo_time.append(t_check_relative) # time SINCE THE START OF CRUISE CONTROL
                 self.stmemo_p.append(p_read)
                 self.stmemo_flow.append(flow_read)
-                self.stmemo_ref.append(self.ref_flow)
+                
+                # record the controller mode and parameters depending on the mode
+                self.stmemo_mode.append(self.mode)
+                if(self.mode==0):   # flow reference tracking
+                    # flow controller data
+                    self.stmemo_ref_flow.append(self.ref_flow)
+                    # NaNs for the constant pressure setpoint
+                    self.stmemo_const_press.append(np.nan)
+                elif(self.mode==1): # constant pressure
+                    # constant pressure controller data
+                    self.stmemo_const_press.append(self.const_press)
+                    # NaNs for the reference flow
+                    self.stmemo_ref_flow.append(np.nan)
+                # controller gains
                 self.stmemo_p_gain.append(self.p_gain)
                 self.stmemo_i_gain.append(self.i_gain)
                 self.stmemo_d_gain.append(self.d_gain)
+
+                # for estimated medium left in the source, calculate the estimate first
+                if(len(self.stmemo_medleft)==0):
+                    medleft = self.medstart  # at the beginning, the starting volume
+                elif(medleft_new>=0):   # if medium source has been changed, recorsd this value
+                    medleft = medleft_new
+                else:
+                    # estimate using the trapezium rule
+                    medleft = self.stmemo_medleft[-1] - (0.5 * (flow_read + self.stmemo_flow[-1]) * self.dt_check / 60000)  # note the conversion factor from ul/min to ml/s
+                self.stmemo_medleft.append(medleft)
+
                 # pop the oldest readings if short-term memory is full
                 if(len(self.stmemo_p)>self.short_term_memo_size):
                     self.stmemo_p.pop(0)
                     self.stmemo_flow.pop(0)
                     self.stmemo_time.pop(0)
-                    self.stmemo_ref.pop(0)
+                    self.stmemo_ref_flow.pop(0)
+                    self.stmemo_const_press.pop(0)
                     self.stmemo_p_gain.pop(0)
                     self.stmemo_i_gain.pop(0)
                     self.stmemo_d_gain.pop(0)
+                    self.stmemo_medleft.pop(0)
 
             # LOG THE DATA IF IT'S TIME TO DO SO
             if(cc_check_cntr % self.log_every_points == 0):
                 with open(self.logfilepath, 'a', newline='') as logfile:
                     logwriter = csv.writer(logfile)
                     with self.lock_stmemo:
-                        logwriter.writerow([self.stmemo_time[-1], self.stmemo_p[-1], self.stmemo_flow[-1], self.stmemo_ref[-1],
-                                            self.stmemo_p_gain[-1], self.stmemo_i_gain[-1], self.stmemo_d_gain[-1]],)
+                        # record the controller state depdning on the mode
+                        logwriter.writerow([
+                            # time, pressure, flow
+                            self.stmemo_time[-1], self.stmemo_p[-1], self.stmemo_flow[-1],
+                            # medium left in the source
+                            self.stmemo_medleft[-1],
+                            # controller mode
+                            self.stmemo_mode[-1],
+                            # reference flow
+                            self.stmemo_ref_flow[-1],
+                            # constant pressure setpoint
+                            self.stmemo_const_press[-1],
+                            # P, I, D gains
+                            self.stmemo_p_gain[-1], self.stmemo_i_gain[-1], self.stmemo_d_gain[-1]], )
 
             # UPDATE THE CHECK COUNTER AND WAIT FOR THE NEXT CHECK
-            cc_check_cntr += 1
-            time.sleep(self.dt_check-(time.time()-t_check_absolute))
+            cc_check_cntr += 1  # update the check counter for the next step
+            sleep_time = cc_check_cntr*self.dt_check-(time.time()-self.cc_start_time)   # find sleep time until the next step
+            time.sleep(sleep_time)  # sleep until the next step
         return
 
     # handle user input during cruise control
     def cruise_control_user(self):
         while self.doing_cruise_control:
+            # sleep for a while to let the OB-1 deal with the previous command
+            if not(self.threads_just_started):
+                time.sleep(self.dt_check)
+
             # First, print messages from the OB-1 handler, if any
             try:
                 OB1_print = self.OB1_print_queue.get_nowait()
-                print(1)
                 print(OB1_print)
             except:
                 pass
 
             # User input
-            cmds_on_offer = 'stop, set_ref, set_gains, live_plot'
+            cmds_on_offer = 'stop, set_ref_flow, set_const_press, set_gains, live_plot'
 
-            user_cmd = input('What do you want to do? ('+cmds_on_offer+'): ')
+            user_cmd = input('What would you like to do? ('+cmds_on_offer+'): ')
 
             if(user_cmd=='stop'):   # stop the cruise control
                 print('Stopping cruise control...')
                 self.user_cmd_queue.put((0,         # command code: 0 for stopping the cruise control
                                          0, 0, 0))   # args: irrelevant for cmd 0
                 break
-            elif(user_cmd=='set_ref'):  # set the reference flow
+            elif(user_cmd=='set_ref_flow'):  # set the reference flow
                 ref_flow = float(input("Specify the reference flow (ul/min): "))
-                self.user_cmd_queue.put((1,                 # command code: 1 for changing reference flow
+                self.user_cmd_queue.put((1,                 # command code: 1 for setting a new reference flow
                                          ref_flow, 0, 0))   # args: zeroth is the new ref flow, others irrelevant
+            elif (user_cmd == 'set_const_press'):  # set a constant pressure
+                const_press = float(input("Specify the constant pressure (mbar): "))
+                self.user_cmd_queue.put((2,  # command code: 2 for setting a constant pressure
+                                         const_press, 0, 0))
             elif(user_cmd=='set_gains'):  # set the PI(D?) gains
                 p_gain = float(input("Specify the new P gain: "))
                 i_gain = float(input("Specify the new I gain: "))
                 d_gain = float(input("Specify the new D gain: "))
-                self.user_cmd_queue.put((2,                 # command code: 2 for changing the PI(D?) gains
+                self.user_cmd_queue.put((3,                 # command code: 3 for changing the PI(D?) gains
                                          # args
                                          p_gain,            # zeroth arg is the new P gain
                                          i_gain,            # first arg is the new I gain
                                          d_gain))                # second arg is the new D gain
             elif(user_cmd=='live_plot'):  # open a live plot
-                self.user_cmd_queue.put((3,  # command code: 3 for stopping the cruise control
+                self.user_cmd_queue.put((4,  # command code: 4 for stopping the cruise control
                                          0, 0, 0))  # args: irrelevant for cmd 0
-
+            elif(user_cmd=='change_medium'):
+                medleft_new = float(input("Specify the new starting medium volume (ml): "))
+                self.user_cmd_queue.put((5,  # command code: 5 for changing the medium source
+                                         medleft_new, 0, 0))
         return
 
     # stop cruise control
@@ -884,27 +984,28 @@ class OB1_manager:
             return False, 0
         else:
             any_cutoff_condition_true = False
-            for i in range(self.num_safeguards):
-                # condition can only be met if the period considered by the safeguard has elapsed since the beginning
-                if(len(self.stmemo_p)>=self.safeguard_check_steps[i]):
-                    p_cutoff_cond_true = (
-                            ((self.stmemo_p[-self.safeguard_check_steps[i]:] <= self.p_bounds[i]).all() and self.p_lnub[i] == -1)
-                            or
-                            ((self.stmemo_p[-self.safeguard_check_steps[i]:] >= self.p_bounds[i]).all() and self.p_lnub[i] == 1)
-                            or
-                            self.p_lnub[i] == 0 # if no pressure condition is specified, the pressure condition is always true
-                    )
-                    flow_cutoff_cond_true = (
-                            ((self.stmemo_flow[-self.safeguard_check_steps[i]:] <= self.flow_bounds[i]).all() and self.flow_lnub[i] == -1)
-                            or
-                            ((self.stmemo_flow[-self.safeguard_check_steps[i]:] >= self.flow_bounds[i]).all() and self.flow_lnub[i] == 1)
-                            or
-                            self.flow_lnub[i] == 0 # if no flow condition is specified, the flow condition is always true
-                    )
-                    if(p_cutoff_cond_true and flow_cutoff_cond_true):
-                        print('!!!PRESSURE CUT-OFF CONDITION %d TRIGGERED!!!' % i)
-                        any_cutoff_condition_true = True
-                        break
+            with self.lock_stmemo:
+                for i in range(self.num_safeguards):
+                    # condition can only be met if the period considered by the safeguard has elapsed since the beginning
+                    if(len(self.stmemo_p)>=self.safeguard_check_steps[i]):
+                        p_cutoff_cond_true = (
+                                ((self.stmemo_p[-self.safeguard_check_steps[i]:] <= self.p_bounds[i]).all() and self.p_lnub[i] == -1)
+                                or
+                                ((self.stmemo_p[-self.safeguard_check_steps[i]:] >= self.p_bounds[i]).all() and self.p_lnub[i] == 1)
+                                or
+                                self.p_lnub[i] == 0 # if no pressure condition is specified, the pressure condition is always true
+                        )
+                        flow_cutoff_cond_true = (
+                                ((self.stmemo_flow[-self.safeguard_check_steps[i]:] <= self.flow_bounds[i]).all() and self.flow_lnub[i] == -1)
+                                or
+                                ((self.stmemo_flow[-self.safeguard_check_steps[i]:] >= self.flow_bounds[i]).all() and self.flow_lnub[i] == 1)
+                                or
+                                self.flow_lnub[i] == 0 # if no flow condition is specified, the flow condition is always true
+                        )
+                        if(p_cutoff_cond_true and flow_cutoff_cond_true):
+                            print('!!!PRESSURE CUT-OFF CONDITION %d TRIGGERED!!!' % i)
+                            any_cutoff_condition_true = True
+                            break
 
             # return whether any cutoff condition is true and the index of the condition
             return any_cutoff_condition_true, i
@@ -920,10 +1021,11 @@ class OB1_manager:
         self.flerrint=max(self.min_flerrint, min(flerrint, self.max_flerrint))
 
         # get the derivative component - for the flow itself to avoid kicks as the reference changes
-        if(len(self.stmemo_flow)>=1):
-            flder = (flow - self.stmemo_flow[-1])/(t_check - self.stmemo_time[-1])
-        else:
-            flder = 0
+        with self.lock_stmemo:
+            if(len(self.stmemo_flow)>=1):
+                flder = (flow - self.stmemo_flow[-1])/(t_check - self.stmemo_time[-1])
+            else:
+                flder = 0
 
         # calculate the pressure to supply
         p_calc = self.p_gain*flerr + self.i_gain*self.flerrint + self.d_gain*flder
@@ -939,7 +1041,7 @@ class OB1_manager:
         plt.ion()  # Turn on interactive mode
         fig_live, axs_live = plt.subplots(nrows=2, ncols=2,
                                           width_ratios=[2, 1], height_ratios=[1, 1])
-        axs_live[1,1].axis('off')
+
         # adjust the layout
         fig_live.tight_layout(pad=2.0)
 
@@ -952,7 +1054,7 @@ class OB1_manager:
         # start live plot lines for flow and reference flow
         flow_line_live, = axs_live[0,0].plot([], [], label='Flow',
                                       linestyle='-', color='navy')
-        ref_line_live, = axs_live[0,0].plot([], [], label='Reference flow',
+        ref_flow_line_live, = axs_live[0,0].plot([], [], label='Reference flow',
                                      linestyle='--', color='steelblue')
         # show legend
         axs_live[0,0].legend(loc='upper left')
@@ -966,7 +1068,10 @@ class OB1_manager:
         axs_live[1,0].set_ylabel('Pressure (mbar)')
         # start live plot line for pressure
         p_line_live, = axs_live[1,0].plot([], [], label='Pressure',
-                                   linestyle='-', color='firebrick')
+                                   linestyle='-', color='darkred')
+        # start live plot line for constant pressure setpoint
+        const_press_line_live, = axs_live[1,0].plot([], [], label='Constant pressure',
+                                             linestyle='--', color='firebrick')
         # show legend
         axs_live[1,0].legend(loc='upper left')
 
@@ -983,18 +1088,32 @@ class OB1_manager:
         # show legend
         axs_live[0,1].legend(loc='upper left')
 
+        # plot the estimated medium left in the source in the fourth subfigure
+        # plot formatting
+        axs_live[1, 1].grid()
+        axs_live[1, 1].set_ylim(bottom=0, top=55)
+        # plot
+        axs_live[1, 1].set_xlabel('Time since cruise control start (s)')
+        axs_live[1, 1].set_ylabel('Medium left in source (ml)')
+        # start live plot line for pressure
+        medleft_line_live, = axs_live[1, 1].plot([], [], label='Medium left',
+                                           linestyle='-', color='gold')
+        # show legend
+        axs_live[1, 0].legend(loc='upper left')
+
 
         # define the plot updater function
         def live_plot_updater(frames):
             with (self.lock_stmemo):
-                # update the flow and reference flow plot
+                # update the flow plot
                 flow_line_live.set_data(self.stmemo_time, self.stmemo_flow)
-                ref_line_live.set_data(self.stmemo_time, self.stmemo_ref)
+                ref_flow_line_live.set_data(self.stmemo_time, self.stmemo_ref_flow)
                 axs_live[0,0].relim()
                 axs_live[0,0].autoscale_view()
 
                 # update the pressure plot
                 p_line_live.set_data(self.stmemo_time, self.stmemo_p)
+                const_press_line_live.set_data(self.stmemo_time, self.stmemo_const_press)
                 axs_live[1,0].relim()
                 axs_live[1,0].autoscale_view()
 
@@ -1005,8 +1124,16 @@ class OB1_manager:
                 axs_live[0,1].relim()
                 axs_live[0,1].autoscale_view()
 
-                return flow_line_live, ref_line_live, p_line_live, \
+                # update the medium left plot
+                medleft_line_live.set_data(self.stmemo_time, self.stmemo_medleft)
+                axs_live[1, 1].relim()
+                axs_live[1, 1].autoscale_view()
+
+                return flow_line_live, p_line_live, \
+                    medleft_line_live, \
+                    ref_flow_line_live, const_press_line_live, \
                     p_gain_line_live, i_gain_line_live, d_gain_line_live
+                    
 
         # create the animator
         ani = FuncAnimation(fig_live, live_plot_updater, interval=1000, blit=False,
@@ -1028,13 +1155,16 @@ class OB1_manager:
                      data_time,  # time since cruise control start
                      data_p,     # pressure (measured at source)
                      data_flow,  # flow rate (measured at the outlet)
-                     data_ref,   # reference flow rate
+                     data_medleft,  # medium left in the source
+                     data_mode,  # controller mode (0 for flow reference tracking, 1 for constant pressure)
+                     data_ref_flow,   # reference flow rate
+                     data_const_press,  # constant pressure setpoint
                      data_gains, # P, I, D gains
                      # pressure and flow plot ranges
                      p_range=(-10, 2000),  # pressure range
                      flow_range=(-10, 80),  # flow rate range
                      # output file name
-                     plotfilename='OB1_PID_log.png',
+                     plotfilename='logs/OB1_PID_log.png',
                      # show safeguards or not?
                      show_safeguards=False,
                      ):
@@ -1046,15 +1176,15 @@ class OB1_manager:
         # initialise the figure with subplots
         fig, axs = plt.subplots(nrows=2, ncols=2,
                                 width_ratios=[2, 1], height_ratios=[1, 1])
-        axs[1,1].axis('off')
+
         # plot the flow and reference flow in the same subfigure using matplotlib
         # plot formatting
         axs[0,0].grid()
         axs[0,0].set_ylim(bottom=flow_range[0], top=flow_range[1])
-        # plot itself
+        # plot flow
         axs[0,0].plot(data_time, data_flow, label='Flow',
                     linestyle='-', color='navy')
-        axs[0,0].plot(data_time, data_ref, label='Reference flow',
+        axs[0,0].plot(data_time,data_ref_flow, label='Reference flow',
                     linestyle='--', color='steelblue')
         axs[0,0].set_xlabel('Time since cruise control start (s)')
         axs[0,0].set_ylabel('Flow rate (ul/min)')
@@ -1073,9 +1203,11 @@ class OB1_manager:
         # plot formatting
         axs[1,0].grid()
         axs[1,0].set_ylim(bottom=p_range[0], top=p_range[1])
-        # plot
+        # plot pressure
         axs[1,0].plot(data_time, data_p, label='Pressure',
-                    linestyle='-', color='firebrick')
+                    linestyle='-', color='darkred')
+        axs[1,0].plot(data_time, data_const_press, label='Const. press. setpoint',
+                    linestyle='--', color='firebrick')
         axs[1,0].set_xlabel('Time since cruise control start (s)')
         axs[1,0].set_ylabel('Pressure (mbar)')
         axs[1,0].legend(loc='upper left')
@@ -1090,30 +1222,46 @@ class OB1_manager:
                                    facecolor='grey', alpha=0.5, hatch=safeguard_hatches[i])
 
         # # plot the pressure in a separate subfigure
-        axs[0,1].grid()
-        # start live plot lines for the gains
-        p_gain_line_live, = axs[0,1].plot(data_time, data_gains['P'], label='P gain',
-                                             linestyle='-', color='darkviolet', alpha=0.5)
-        i_gain_line_live, = axs[0,1].plot(data_time, data_gains['I'], label='I gain',
-                                             linestyle='-', color='darkorange', alpha=0.5)
-        d_gain_line_live, = axs[0,1].plot(data_time, data_gains['D'], label='D gain',
-                                             linestyle='-', color='lightseagreen', alpha=0.5)
+        axs[0, 1].grid()
+        # plot the gains
+        axs[0, 1].plot(data_time, data_gains['P'], label='P gain',
+                       linestyle='-', color='darkviolet', alpha=0.5)
+        axs[0, 1].plot(data_time, data_gains['I'], label='I gain',
+                       linestyle='-', color='darkorange', alpha=0.5)
+        axs[0, 1].plot(data_time, data_gains['D'], label='D gain',
+                       linestyle='-', color='lightseagreen', alpha=0.5)
         # show legend
-        axs[0,1].legend(loc='upper left')
+        axs[0, 1].legend(loc='upper left')
+
+        # plot the estimated medium left in the source in the fourth subfigure
+        # plot formatting
+        axs[1, 1].grid()
+        axs[1, 1].set_ylim(bottom=0, top=55)
+        # plot
+        axs[1, 1].set_xlabel('Time since cruise control start (s)')
+        axs[1, 1].set_ylabel('Medium left in source (ml)')
+        # plot the medium left
+        axs[1, 1].plot(data_time, data_medleft, label='Medium left',
+                       linestyle='-', color='gold')
+        # show legend
+        axs[1, 1].legend(loc='upper left')
 
         # adjust the layout
-        fig.tight_layout(pad=2.0)
+        fig.tight_layout(pad=1.0)
         # save figure
         plt.savefig(plotfilename)
         return
 
     # plot the shrt-term memory
     def plot_stmemo(self,
-                    plotfilename='OB1_PID_log.png'):
+                    plotfilename='logs/OB1_PID_log.png'):
         self.plot_cc_data(data_time=self.stmemo_time,
                           data_p=self.stmemo_p,
                           data_flow=self.stmemo_flow,
-                          data_ref=self.stmemo_ref,
+                          data_medleft=self.stmemo_medleft,
+                          data_mode=self.stmemo_mode,
+                          data_ref_flow=self.stmemo_ref_flow,
+                          data_const_press=self.stmemo_const_press,
                           data_gains={'P': self.stmemo_p_gain,
                                       'I': self.stmemo_i_gain,
                                       'D': self.stmemo_d_gain},
@@ -1122,26 +1270,34 @@ class OB1_manager:
 
     # plot the logged data from a file
     def plot_log(self,
-                 logfilename='OB1_PID_log.csv',
-                 plotfilename='OB1_PID_log.png',
+                 logfilename='logs/OB1_PID_log.csv',
+                 plotfilename='logs/OB1_PID_log.png',
                  # show safeguards or not?
                  show_safeguards=False,
                  ):
         # read the log file
-        log_df = pd.read_csv(logfilename)   # get the dataframe from csv
-        # get the data for time, pressure, flow, and reference flow
+        log_df = pd.read_csv(logfilename, na_values='N/A')   # get the dataframe from csv
+        # get the data for time, pressure, flow
         log_time = log_df['Time (s)'].to_numpy()
         log_p = log_df['Pressure (mbar)'].to_numpy()
         log_flow = log_df['Flow (ul/min)'].to_numpy()
-        log_ref = log_df['Reference flow (ul/min)'].to_numpy()
+        # get the data for medium left in the source
+        log_medleft = log_df['Medium left (ml)'].to_numpy()
+        # get the data for controller mode, reference flow and constant pressure setpoint
+        log_mode = log_df['Mode'].to_numpy()
+        log_ref_flow = log_df['Reference flow (ul/min)'].to_numpy()
+        log_const_press = log_df['Constant pressure (mbar)'].to_numpy()
         # get the data for the gains
         log_gains={'P': log_df['P gain'].to_numpy(),
                    'I': log_df['I gain'].to_numpy(),
                    'D': log_df['D gain'].to_numpy()}
 
         # plot the data
-        self.plot_cc_data(log_time, log_p, log_flow, log_ref,
-                          log_gains,
+        self.plot_cc_data(data_time=log_time, data_p=log_p, data_flow=log_flow,
+                          data_medleft=log_medleft,
+                          data_mode=log_mode,
+                          data_ref_flow=log_ref_flow, data_const_press=log_const_press,
+                          data_gains=log_gains,
                           plotfilename=plotfilename,
                           show_safeguards=show_safeguards)
         return
@@ -1152,14 +1308,21 @@ def main():
     # initialise the OB-1 manager
     Kenobi = OB1_manager()
 
+    # append the experiment's starting time to the log file name
+    date_time_string = (datetime.datetime.now()).strftime("_%d%m_%H%M")
+    date_time_string=''
+    logfilename = r'logs/OB1_PID_log' + date_time_string + '.csv'
+
     # begin cruise control
-    Kenobi.cruise_control()
+    Kenobi.cruise_control(logfilename)
 
     # plot the short-term memory at the end
-    Kenobi.plot_stmemo(plotfilename='OB1_PID_final_stmemo.png')
+    Kenobi.plot_stmemo(plotfilename='logs/OB1_PID_final_stmemo' + date_time_string + '.png')
 
     # plot the logged data
-    Kenobi.plot_log(show_safeguards=True)
+    Kenobi.plot_log(show_safeguards=False,
+                    logfilename=logfilename,
+                    plotfilename='logs/OB1_PID_log' + date_time_string + '.png')
 
     return
 
