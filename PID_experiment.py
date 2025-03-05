@@ -662,7 +662,6 @@ class OB1_manager:
             file.write('ch = ' + str(self.ch) + '\n')
             file.write('END OB-1 CHANNEL\n')
             file.write('\n')
-
             file.write('FLOW CONTROLLER\n')
             # initial reference setpoint
             file.write('ref_flow = ' + str(self.ref_flow) + ' ul/min\n')
@@ -905,7 +904,7 @@ class OB1_manager:
             # UPDATE THE CHECK COUNTER AND WAIT FOR THE NEXT CHECK
             cc_check_cntr += 1  # update the check counter for the next step
             sleep_time = cc_check_cntr*self.dt_check-(time.time()-self.cc_start_time)   # find sleep time until the next step
-            time.sleep(sleep_time)  # sleep until the next step
+            time.sleep(max(sleep_time,0.0))  # sleep until the next step
         return
 
     # handle user input during cruise control
