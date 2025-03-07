@@ -32,7 +32,7 @@ class OB1_manager:
             loadfilewindow = tkinter.Tk()
             loadfilewindow.wm_attributes('-topmost', 1)
             loadfilewindow.withdraw()
-            settings_file = tkinter.filedialog.askopenfilename()
+            settings_file = tkinter.filedia.askopenfilename()
             # load settings from the file
             still_todo=self.load_settings(settings_file)
         else:
@@ -119,10 +119,10 @@ class OB1_manager:
         ob1_error_msg = OB1_Add_Sens(self.OB1,  # which OB-1 is being used
                                      self.ch.value,  # the selected channel
                                      4,  # sensor type - WE ONLY HAVE TYPE 4 SENSORS (MICRFOLUIDIC FLOW SENSORS FOR MAX +-80UL/MIN)
-                                     1,  # 0 if analog, 1 if digital - OUR SENSORS ARE DIGITAL
+                                     1,  # 0 if ana, 1 if digital - OUR SENSORS ARE DIGITAL
                                      0,  # 0 if calibrated for water, 1 if calibrated for isopropanol - OUR SENSORS ARE CALIBRATED FOR WATER
                                      7,  # resolution bits (NOT the exact number thereof! refer to the walkthrough)
-                                     0  # voltage for custom analog sensors - IRRELEVANT AS OUR SENSORS ARE DIGITAL
+                                     0  # voltage for custom ana sensors - IRRELEVANT AS OUR SENSORS ARE DIGITAL
                                      )
         if (ob1_error_msg != 0):
             print('Sensor addition error: %d' % ob1_error_msg)
@@ -1309,7 +1309,6 @@ def main():
 
     # append the experiment's starting time to the log file name
     date_time_string = (datetime.datetime.now()).strftime("_%d%m_%H%M")
-    date_time_string=''
     logfilename = r'logs/OB1_PID_log' + date_time_string + '.csv'
 
     # begin cruise control
