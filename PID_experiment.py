@@ -32,7 +32,8 @@ class OB1_manager:
             loadfilewindow = tkinter.Tk()
             loadfilewindow.wm_attributes('-topmost', 1)
             loadfilewindow.withdraw()
-            settings_file = tkinter.filedia.askopenfilename()
+            #settings_file = tkinter.filedia.askopenfilename()
+            settings_file = tkinter.filedialog.askopenfilename()
             # load settings from the file
             still_todo=self.load_settings(settings_file)
         else:
