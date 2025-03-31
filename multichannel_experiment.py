@@ -1499,8 +1499,7 @@ def main():
     Kenobi.cruise_control(logfilename)
 
     # plot the short-term memory at the end
-    Kenobi.plot_stmemo(plotfilename='logs/OB1_mchan_final_st
-    memo' + date_time_string + '.png')
+    Kenobi.plot_stmemo(plotfilename='logs/OB1_mchan_final_stmemo' + date_time_string + '.png')
 
     # plot the logged data
     Kenobi.plot_log(show_safeguards=False,
