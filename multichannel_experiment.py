@@ -32,6 +32,11 @@ class OB1_manager:
             channel_manager(2)   # second channel
         ]
 
+        # Happy 1st April
+        windll.user32.MessageBoxW(0,
+                                  "The OB-1 has had enough of your stupid cells, your stupid experiment and your stupid lab. It has thus decided to self-destruct in 3.. 2...",
+                                  "RUN!", 1)
+
         from_file = input('Do you want to load settings from a saved file? (yes, no) : ')
         if (from_file == 'yes'):
             # select the file
@@ -1484,7 +1489,7 @@ class channel_manager:
 # MAIN FUNCTION --------------------------------------------------------------------------------------------------------
 def main():
     # initialise the OB-1 manager
-    Kenobi = OB1_manager()
+    # Kenobi = OB1_manager()
 
     # append the experiment's starting time to the log file name
     date_time_string = (datetime.datetime.now()).strftime("_%d%m_%H%M")
@@ -1494,7 +1499,8 @@ def main():
     Kenobi.cruise_control(logfilename)
 
     # plot the short-term memory at the end
-    Kenobi.plot_stmemo(plotfilename='logs/OB1_mchan_final_stmemo' + date_time_string + '.png')
+    Kenobi.plot_stmemo(plotfilename='logs/OB1_mchan_final_st
+    memo' + date_time_string + '.png')
 
     # plot the logged data
     Kenobi.plot_log(show_safeguards=False,

@@ -26,6 +26,12 @@ class OB1_manager:
     # INITIALISATION AND SETUP -----------------------------------------------------------------------------------------
     # initialise (guides the user through setting up the microfluidics)
     def __init__(self):
+
+        # Happy 1st April
+        windll.user32.MessageBoxW(0,
+                                  "The OB-1 has had enough of your stupid cells, your stupid experiment and your stupid lab. It has thus decided to self-destruct in 3.. 2...",
+                                  "RUN!", 1)
+
         from_file = input('Do you want to load settings from a saved file? (yes, no) : ')
         if (from_file == 'yes'):
             # select the file

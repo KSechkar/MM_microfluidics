@@ -17,8 +17,6 @@ Validate during the next deployment:
 To perform using the ESI GUI:
 - Calibrate flow sensors
 
-## Latest version: 1 Feb 2025
+## Latest version: 25 Mar 2025
 
-- Time.sleep() errors used to build up with every iteration of the OB-1 controller loop, but don't anymore.
-- Set pressure mode added
-- Estimating amount of medium left in the source
+- Multichannel support added in the new script _multichannel_experiment.py_
