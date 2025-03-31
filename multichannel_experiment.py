@@ -1489,7 +1489,7 @@ class channel_manager:
 # MAIN FUNCTION --------------------------------------------------------------------------------------------------------
 def main():
     # initialise the OB-1 manager
-    # Kenobi = OB1_manager()
+    Kenobi = OB1_manager()
 
     # append the experiment's starting time to the log file name
     date_time_string = (datetime.datetime.now()).strftime("_%d%m_%H%M")
