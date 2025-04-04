@@ -1098,6 +1098,10 @@ class OB1_manager:
         # return the pressure to feed to the system
         return p
 
+    # DIFFERENT VALVE CRUISE CONTROL FUNCTIONS -------------------------------------------------------------------------
+    def pwm_cruise_control(self):
+        return
+
     # LIVE PLOTTING OF THE CRUISE CONTROL DATA -------------------------------------------------------------------------
     # plot the short-term memory during cruise control
     def live_stmemo_plot(self):
@@ -1480,6 +1484,19 @@ class channel_manager:
         self.stmemo_d_gain = []
         return
 
+
+# DISTRIBUTION VALVE MANAGER -------------------------------------------------------------------------------------------
+class valve_manager:
+    def __init__(self):
+        return
+
+    # cruise control function for PWM
+    def cruise_control_valve_pwm(self):
+        time.start_cycle=time.time()
+        return
+
+    def pwm_switch_time_determine(self):
+        return
 
 # MAIN FUNCTION --------------------------------------------------------------------------------------------------------
 def main():
