@@ -1522,6 +1522,26 @@ class OB1_manager:
         if (self.channels[1].in_use):
             axs_live[1, 2].legend(loc='upper left')
 
+        # plot the valve inlet
+        axs_live[2, 1].grid()
+        axs_live[2, 1].set_ylim(bottom=1, top=12)
+        # plot labels
+        axs_live[2, 1].set_xlabel('Time since cruise control start (s)')
+        axs_live[2, 1].set_ylabel('Valve inlet')
+        # plot the inlets
+        valve_inlet_line_live, = axs_live[2, 1].plot([], [], label='Valve inlet',
+                       linestyle='-', color='black')
+
+        # plot the valve input conc.
+        axs_live[2, 2].grid()
+        axs_live[2, 2].set_ylim(bottom=1, top=12)
+        # plot labels
+        axs_live[2, 2].set_xlabel('Time since cruise control start (s)')
+        axs_live[2, 2].set_ylabel('Input conc.')
+        # plot the inlets
+        valve_input_conc_line_live, = axs_live[2, 2].plot([], [], label='Input conc.',
+                       linestyle='-', color='black')
+
 
         # define the plot updater function
         def live_plot_updater(frames):
@@ -1574,14 +1594,27 @@ class OB1_manager:
                     axs_live[1, 2].relim()
                     axs_live[1, 2].autoscale_view()
 
-                return ch1_flow_line_live, ch1_p_line_live, \
-                    ch1_medleft_line_live, \
-                    ch1_ref_flow_line_live, ch1_const_press_line_live, \
-                    ch1_p_gain_line_live, ch1_i_gain_line_live, ch1_d_gain_line_live, \
-                    ch2_flow_line_live, ch2_p_line_live, \
-                    ch2_medleft_line_live, \
-                    ch2_ref_flow_line_live, ch2_const_press_line_live, \
-                    ch2_p_gain_line_live, ch2_i_gain_line_live, ch2_d_gain_line_live,
+                # update the inlet plot for the valve
+                if(self.valve.in_use):
+                    valve_inlet_line_live.set_data(self.valve.stmemo_time, self.valve.stmemo_inlet)
+                    axs_live[2, 1].relim()
+                    axs_live[2, 1]. autoscale_view()
+
+                # update the input conc plot for the valve
+                if (self.valve.in_use):
+                    valve_input_conc_line_live.set_data(self.valve.stmemo_time, self.valve.stmemo_input_conc)
+                    axs_live[2, 2].relim()
+                    axs_live[2, 2].autoscale_view()
+
+            return ch1_flow_line_live, ch1_p_line_live, \
+                ch1_medleft_line_live, \
+                ch1_ref_flow_line_live, ch1_const_press_line_live, \
+                ch1_p_gain_line_live, ch1_i_gain_line_live, ch1_d_gain_line_live, \
+                ch2_flow_line_live, ch2_p_line_live, \
+                ch2_medleft_line_live, \
+                ch2_ref_flow_line_live, ch2_const_press_line_live, \
+                ch2_p_gain_line_live, ch2_i_gain_line_live, ch2_d_gain_line_live, \
+                valve_inlet_line_live, valve_input_conc_line_live
 
 
                 # create the animator
@@ -1722,7 +1755,7 @@ class OB1_manager:
             axs[2, 1].set_xlabel('Time since cruise control start (s)')
             axs[2, 1].set_ylabel('Valve inlet')
             # plot the inlets
-            axs[1, 2].plot(data_time[2], data_valve_inlet, label='Valve inlet',
+            axs[2, 1].plot(data_time[2], data_valve_inlet, label='Valve inlet',
                            linestyle='-', color='black')
 
         # plot the valve input conc.
