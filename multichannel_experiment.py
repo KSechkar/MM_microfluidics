@@ -15,11 +15,13 @@ import queue
 
 # ELVEFLOW SDK
 import sys
-sys.path.append(r'C:\Users\hslab1\Documents\ESI\ESI_SDK\DLL64')#add the path of the library here
-sys.path.append(r'C:\Users\hslab1\Documents\ESI\ESI_SDK\Python_64')#add the path of the LoadElveflow.py
+
+sys.path.append(r'C:\Users\hslab1\Documents\ESI\ESI_SDK\DLL64')  # add the path of the library here
+sys.path.append(r'C:\Users\hslab1\Documents\ESI\ESI_SDK\Python_64')  # add the path of the LoadElveflow.py
 from ctypes import *
 from array import array
 from Elveflow64 import *
+
 
 # OB-1 MANAGER CLASS ---------------------------------------------------------------------------------------------------
 class OB1_manager:
@@ -29,7 +31,7 @@ class OB1_manager:
         # initialise channels
         self.channels = [
             channel_manager(1),  # first channel
-            channel_manager(2)   # second channel
+            channel_manager(2)  # second channel
         ]
 
         from_file = input('Do you want to load settings from a saved file? (yes, no) : ')
@@ -38,18 +40,18 @@ class OB1_manager:
             loadfilewindow = tkinter.Tk()
             loadfilewindow.wm_attributes('-topmost', 1)
             loadfilewindow.withdraw()
-            #settings_file = tkinter.filedia.askopenfilename()
+            # settings_file = tkinter.filedia.askopenfilename()
             settings_file = tkinter.filedialog.askopenfilename()
             # load settings from the file
-            interactions_still_todo=self.load_settings(settings_file)
+            interactions_still_todo = self.load_settings(settings_file)
         else:
             # specify the channel(s) in use
             ch1_in_use = input('Is CHANNEL 1 in use? (yes, no) : ')
             if (ch1_in_use):
-                self.channels[0].in_use=True
+                self.channels[0].in_use = True
             ch2_in_use = input('Is CHANNEL 2 in use? (yes, no) : ')
             if (ch2_in_use):
-                self.channels[1].in_use=True
+                self.channels[1].in_use = True
             # specify that the OB-1-computer interaction swettings are yet to be specified
             interactions_still_todo = True
             # specify that all the settings for the channels in use are yet to be selected
@@ -60,9 +62,11 @@ class OB1_manager:
         # print('\nSET UP THE OB-1')    # ----------------------------------------------------------------------------------
         print('Initialising OB-1...')
         self.OB1 = c_int32()
-        ob1_error_msg = OB1_Initialization('0204CC5D'.encode('ascii'),  # OB-1 self.OB1's serial number (check by running NIMAX)
-                                   2, 2, 0, 0,                  # Types of channels 1,2,3,4 respectively - WE HAVE JUST TWO CHANNELS, BOTH TYPE 2 (0-2000 MBAR)
-                                   byref(self.OB1))               # reference assigned to the OB-1
+        ob1_error_msg = OB1_Initialization('0204CC5D'.encode('ascii'),
+                                           # OB-1 self.OB1's serial number (check by running NIMAX)
+                                           2, 2, 0, 0,
+                                           # Types of channels 1,2,3,4 respectively - WE HAVE JUST TWO CHANNELS, BOTH TYPE 2 (0-2000 MBAR)
+                                           byref(self.OB1))  # reference assigned to the OB-1
         if (ob1_error_msg != 0):
             print('OB-1 initialisation error: %d' % ob1_error_msg)
             exit(1)
@@ -77,10 +81,10 @@ class OB1_manager:
                     print('Default calibration error: %d' % ob1_error_msg)
                     exit(1)
                 checking_calibration = input('Do you want to check the calibration? (yes, no) : ')
-                if(checking_calibration=='yes'):
+                if (checking_calibration == 'yes'):
                     self.check_calibration()
-                    good_calibration=input('Happy with the calibration? (yes, no) : ')
-                    if (good_calibration=='yes'):
+                    good_calibration = input('Happy with the calibration? (yes, no) : ')
+                    if (good_calibration == 'yes'):
                         break
                 else:
                     break
@@ -103,17 +107,18 @@ class OB1_manager:
                 # check if the user has assembled the calibration setup
                 calib_ready = 'no'
                 while (calib_ready != 'yes'):
-                    calib_ready = input('New OB-1 calibration. Type yes to confirm all sensors are disconnected and pressure outlets are capped : ')
+                    calib_ready = input(
+                        'New OB-1 calibration. Type yes to confirm all sensors are disconnected and pressure outlets are capped : ')
                 print('Calibrating the OB-1...')
-                ob1_error_msg=OB1_Calib(self.OB1.value, self.Calib, 1000)
-                if(ob1_error_msg != 0):
+                ob1_error_msg = OB1_Calib(self.OB1.value, self.Calib, 1000)
+                if (ob1_error_msg != 0):
                     print('OB-1 calibration error: %d' % ob1_error_msg)
                     exit(1)
                 print('!')
                 ob1_error_msg = Elveflow_Calibration_Save(
                     Calib_path.encode('ascii'),
                     byref(self.Calib), 1000)
-                if(ob1_error_msg != 0):
+                if (ob1_error_msg != 0):
                     print('OB-1 calibration save error: %d' % ob1_error_msg)
                     exit(1)
                 print('Calibration saved in %s' % Calib_path.encode('ascii'))
@@ -123,25 +128,30 @@ class OB1_manager:
                     # check the main setup
                     reconnected = 'no'
                     while (reconnected != 'yes'):
-                        reconnected = input('OB-1 calibration complete. Type yes to confirm you have reconnected all desired sensors and pressure outlets : ')
+                        reconnected = input(
+                            'OB-1 calibration complete. Type yes to confirm you have reconnected all desired sensors and pressure outlets : ')
                     break
 
-        print('\nADDING CHANNELS') # -----------------------------------------------------------------------------------
+        print(
+            '\nADDING CHANNELS')  # -----------------------------------------------------------------------------------
         for ch in self.channels:
-            if(ch.in_use):  # add the flow sensor if the channel is in use
-                print('Adding the flow sensor for CHANNEL '+str(ch.id)+'...')
+            if (ch.in_use):  # add the flow sensor if the channel is in use
+                print('Adding the flow sensor for CHANNEL ' + str(ch.id) + '...')
                 ob1_error_msg = OB1_Add_Sens(self.OB1,  # which OB-1 is being used
                                              ch.id,  # the selected channel
-                                             4,  # sensor type - WE ONLY HAVE TYPE 4 SENSORS (MICRFOLUIDIC FLOW SENSORS FOR MAX +-80UL/MIN)
+                                             4,
+                                             # sensor type - WE ONLY HAVE TYPE 4 SENSORS (MICRFOLUIDIC FLOW SENSORS FOR MAX +-80UL/MIN)
                                              1,  # 0 if ana, 1 if digital - OUR SENSORS ARE DIGITAL
-                                             0,  # 0 if calibrated for water, 1 if calibrated for isopropanol - OUR SENSORS ARE CALIBRATED FOR WATER
-                                             7,  # resolution bits (NOT the exact number thereof! refer to the walkthrough)
+                                             0,
+                                             # 0 if calibrated for water, 1 if calibrated for isopropanol - OUR SENSORS ARE CALIBRATED FOR WATER
+                                             7,
+                                             # resolution bits (NOT the exact number thereof! refer to the walkthrough)
                                              0  # voltage for custom ana sensors - IRRELEVANT AS OUR SENSORS ARE DIGITAL
                                              )
                 if (ob1_error_msg != 0):
                     print('Sensor addition error: %d' % ob1_error_msg)
                     exit(1)
-            print('Flow sensor for CHANNEL '+str(ch.id)+' added')
+            print('Flow sensor for CHANNEL ' + str(ch.id) + ' added')
 
         print('\nSET OB1-COMPUTER INTERACTION PREFERENCES')  # ---------------------------------------------------------
         if (interactions_still_todo):
@@ -158,11 +168,12 @@ class OB1_manager:
         else:
             print('(Loaded from file)')
 
-        print('\nSET UP THE FLOW CONTROLLERS') # ------------------------------------------------------------------------
+        print(
+            '\nSET UP THE FLOW CONTROLLERS')  # ------------------------------------------------------------------------
         for ch in self.channels:
-            if(ch.in_use):
+            if (ch.in_use):
                 print('Set up the controller for CHANNEL ' + str(ch.id))
-                if(ch.still_todo['FLOW CONTROLLER']):
+                if (ch.still_todo['FLOW CONTROLLER']):
                     ch.ref_flow = c_double(float(input('Specify the reference flow rate (ul/min) : ')))
                     ch.p_gain = float(input('Specify the flow controller\'s P gain : '))
                     ch.i_gain = float(input('Specify the flow controller\'s I gain : '))
@@ -170,7 +181,7 @@ class OB1_manager:
                     ch.min_flerrint = float(input('Input error integral lower bound for anti-windup (uL) : '))
                     ch.max_flerrint = float(input('Input error integral upper bound for anti-windup (uL) : '))
                     set_p_bounds = input('Would you like to set non-default bounds on pressure? (yes, no) : ')
-                    if(set_p_bounds=='yes'):
+                    if (set_p_bounds == 'yes'):
                         ch.min_press_ctrl = float(input('Specify the minimum pressure control bound (mbar) : '))
                         ch.max_p_ctrl = float(input('Specify the maximum pressure control bound (mbar) : '))
                     else:
@@ -179,9 +190,10 @@ class OB1_manager:
                         ch.max_p_ctrl = 2000.0
                 else:
                     print('(Loaded from file)')
-                ch.flerrint = 0.0 # initialise with zero error integral
+                ch.flerrint = 0.0  # initialise with zero error integral
 
-        print('\nSET UP THE SAFEGUARDS') # -----------------------------------------------------------------------------
+        print(
+            '\nSET UP THE SAFEGUARDS')  # -----------------------------------------------------------------------------
         for ch in self.channels:
             if (ch.in_use):
                 print('Set up the safeguards for CHANNEL ' + str(ch.id))
@@ -190,7 +202,8 @@ class OB1_manager:
                 else:
                     print('(Loaded from file)')
 
-        print('\nFILL THE TUBING') # -----------------------------------------------------------------------------------
+        print(
+            '\nFILL THE TUBING')  # -----------------------------------------------------------------------------------
         for ch in self.channels:
             if (ch.in_use):
                 tubing_filled = input(
@@ -200,7 +213,7 @@ class OB1_manager:
                     self.fill_channel_tubing(ch)
 
         # SAVE THE STARTING SETTINGS -----------------------------------------------------------------------------------
-        save_filename=self.save_settings()
+        save_filename = self.save_settings()
         print('\nStarting settings saved in %s' % save_filename)
 
         # GET READY TO DO CRUISE CONTROL -------------------------------------------------------------------------------
@@ -232,7 +245,7 @@ class OB1_manager:
     def load_settings(self, filename):
         # moving to the next non-empty and non-comment line
         def next_meaningful_line(current_line):
-            next_line=current_line+1
+            next_line = current_line + 1
             while (next_line < lines_total):
                 if (lines[next_line] == '\n' or lines[next_line][0] == '#'):
                     next_line += 1
@@ -241,7 +254,7 @@ class OB1_manager:
             # if end of file is reached, return next_line=lines_total
             # print(current_line, next_line)
             return next_line
-        
+
         # open the file
         with open(filename, 'r') as file:
             # get the lines from the file
@@ -252,23 +265,23 @@ class OB1_manager:
             curr_line = 0
 
             # go through the lines
-            while(curr_line<lines_total):
+            while (curr_line < lines_total):
                 # handle channels
-                if(lines[curr_line]=='CHANNEL 1\n'):
+                if (lines[curr_line] == 'CHANNEL 1\n'):
                     curr_line = next_meaningful_line(curr_line)
                     # check if the channel is in use
-                    if(lines[curr_line]=='NOT IN USE\n'):
+                    if (lines[curr_line] == 'NOT IN USE\n'):
                         # if not in use, skip the 'END CHANNEL 1' line and proceed
                         curr_line = next_meaningful_line(curr_line)
                     else:
                         # if in use, set the channel under consideration to be channel 1
-                        ch=self.channels[0]
-                        ch.in_use=True
+                        ch = self.channels[0]
+                        ch.in_use = True
                         ch.still_todo = {'FLOW CONTROLLER': True,
-                                      'OB1-COMPUTER INTERACTIONS': True,
-                                      'SAFEGUARDS': True}
+                                         'OB1-COMPUTER INTERACTIONS': True,
+                                         'SAFEGUARDS': True}
                         continue
-                elif(lines[curr_line] == 'CHANNEL 2\n'):
+                elif (lines[curr_line] == 'CHANNEL 2\n'):
                     curr_line = next_meaningful_line(curr_line)
                     # check if the channel is in use
                     if (lines[curr_line] == 'NOT IN USE\n'):
@@ -284,7 +297,7 @@ class OB1_manager:
                         continue
 
                 # read the reference and PI(D?) gains
-                elif(lines[curr_line]=='FLOW CONTROLLER\n'):
+                elif (lines[curr_line] == 'FLOW CONTROLLER\n'):
                     ch.still_todo['FLOW CONTROLLER'] = False
                     curr_line = next_meaningful_line(curr_line)
 
@@ -303,13 +316,13 @@ class OB1_manager:
 
                     # PARAMETERS FOR CONTROL
                     # get the anti-windup bounds for error integral, if any specified
-                    if(lines[curr_line].split()[0]=='min_flerrint'):
+                    if (lines[curr_line].split()[0] == 'min_flerrint'):
                         ch.min_flerrint = float(lines[curr_line].split()[2])
                         curr_line = next_meaningful_line(curr_line)
                         ch.max_flerrint = float(lines[curr_line].split()[2])
                         curr_line = next_meaningful_line(curr_line)
                     # get the user-defined pressure control bounds, if any specified
-                    if(lines[curr_line].split()[0]=='min_press_ctrl'):
+                    if (lines[curr_line].split()[0] == 'min_press_ctrl'):
                         ch.min_press_ctrl = float(lines[curr_line].split()[2])
                         curr_line = next_meaningful_line(curr_line)
                         ch.max_p_ctrl = float(lines[curr_line].split()[2])
@@ -324,7 +337,7 @@ class OB1_manager:
                     continue
 
                 # read OB1-computer interaction settings
-                elif(lines[curr_line]=='OB1-COMPUTER INTERACTIONS\n'):
+                elif (lines[curr_line] == 'OB1-COMPUTER INTERACTIONS\n'):
                     interactions_still_todo = False
                     curr_line = next_meaningful_line(curr_line)
                     # get the check time
@@ -338,15 +351,15 @@ class OB1_manager:
                     curr_line = next_meaningful_line(curr_line)
                     # convert from logging and remembering times to number of data points
                     self.log_every_points = int(self.dt_log / self.dt_check)
-                    self.short_term_memo_size = int(short_term_memo_time / self.dt_check)+1
+                    self.short_term_memo_size = int(short_term_memo_time / self.dt_check) + 1
 
                     # skip the 'END OB1-COMPUTER INTERACTIONS' marker line
                     curr_line = next_meaningful_line(curr_line)
                     continue
 
                 # read safeguards
-                elif(lines[curr_line]=='SAFEGUARDS\n'):
-                    if(interactions_still_todo):
+                elif (lines[curr_line] == 'SAFEGUARDS\n'):
+                    if (interactions_still_todo):
                         print('Error: safeguards cannot be defined before OB1-computer interactions are specified!')
                         exit(1)
                     ch.still_todo['SAFEGUARDS'] = False
@@ -360,22 +373,22 @@ class OB1_manager:
                     safeguard_check_steps = []
                     ch.safeguard_conds = []
                     # keep reading safeguards until a blank line is reached
-                    while(lines[curr_line][0:14]!='END SAFEGUARDS'):
+                    while (lines[curr_line][0:14] != 'END SAFEGUARDS'):
                         # read the pressure cutoff condition
                         cutoff_condition = lines[curr_line].split()
                         curr_cutoff_condition_entry = 0
 
                         # read the pressure cutoff condition, if there is one
-                        if(cutoff_condition[curr_cutoff_condition_entry]!='p'):
+                        if (cutoff_condition[curr_cutoff_condition_entry] != 'p'):
                             # if no pressure condition is specified, the pressure condition is always true
                             p_bounds.append(0)
                             p_lnub.append(0)
                         else:
                             curr_cutoff_condition_entry += 1
                             # see if the pressure condition is <= or >=
-                            if(cutoff_condition[curr_cutoff_condition_entry]=='<='):
+                            if (cutoff_condition[curr_cutoff_condition_entry] == '<='):
                                 p_lnub.append(-1)
-                            elif(cutoff_condition[curr_cutoff_condition_entry]=='>='):
+                            elif (cutoff_condition[curr_cutoff_condition_entry] == '>='):
                                 p_lnub.append(1)
                             else:
                                 print('Error: invalid safeguard format!')
@@ -385,7 +398,7 @@ class OB1_manager:
                             p_bounds.append(float(cutoff_condition[curr_cutoff_condition_entry]))
                             curr_cutoff_condition_entry += 1
                             # skip the 'AND' if there is one
-                            if(cutoff_condition[curr_cutoff_condition_entry]=='AND'):
+                            if (cutoff_condition[curr_cutoff_condition_entry] == 'AND'):
                                 curr_cutoff_condition_entry += 1
                         # read the flow cutoff condition, if there is one
                         if (cutoff_condition[curr_cutoff_condition_entry] != 'flow'):
@@ -393,7 +406,7 @@ class OB1_manager:
                             flow_bounds.append(0)
                             flow_lnub.append(0)
                             # if also no pressure condition and it's not an end-of-safeguards marker, something is off
-                            if(p_lnub[-1]==0):
+                            if (p_lnub[-1] == 0):
                                 print('Error: invalid safeguard format!')
                                 exit(1)
                         else:
@@ -416,7 +429,8 @@ class OB1_manager:
 
                         # get for how long the condition must be true to trigger the cutoff
                         safeguard_time = float(cutoff_condition[curr_cutoff_condition_entry])
-                        safeguard_check_steps.append(int(safeguard_time / ch.dt_check)+1)  # convert to number of data points in short-term memory
+                        safeguard_check_steps.append(
+                            int(safeguard_time / ch.dt_check) + 1)  # convert to number of data points in short-term memory
                         if (safeguard_check_steps[-1] > ch.short_term_memo_size):
                             print('Error: the specified time exceeds short-term memory')
                             exit(1)
@@ -429,8 +443,8 @@ class OB1_manager:
 
                         # move to the next line
                         curr_line = next_meaningful_line(curr_line)
-                        
-                        if(curr_line>=lines_total):
+
+                        if (curr_line >= lines_total):
                             break
 
                     # record the safeguard specs as numpy arrays
@@ -457,42 +471,43 @@ class OB1_manager:
     def check_calibration(self):
         print('Checking calibration...')
 
-        ref_ps=[10, 100, 1000, 2000] # reference pressures to consider
+        ref_ps = [10, 100, 1000, 2000]  # reference pressures to consider
         for ref_p in ref_ps:
-            print('\tChecking calibration at ' + str(ref_p) +' mbar...')
+            print('\tChecking calibration at ' + str(ref_p) + ' mbar...')
             # set reference pressures
             for ch in [1, 2]:
                 ob1_error_msg = OB1_Set_Press(self.OB1.value,  # which OB-1 is being used
-                                      ch,  # which channel is being controlled
-                                      ref_p,  # which pressure is being set
-                                      byref(self.Calib), 1000)
+                                              ch,  # which channel is being controlled
+                                              ref_p,  # which pressure is being set
+                                              byref(self.Calib), 1000)
                 if (ob1_error_msg != 0):
                     print('Pressure setting error: %d' % ob1_error_msg)
                     exit(1)
             # wait for the pressure to stabilise
             time.sleep(1)
             # read pressures
-            p_offsets=[]
+            p_offsets = []
             for ch in [1, 2]:
                 p_ch = c_double()
                 ob1_error_msg = OB1_Get_Press(self.OB1.value,  # which OB-1 is being used
-                                  ch,  # which channel pressure is being read
-                                  1, # 1 means all pressure and analog sensor readings actually measured, not taken for memory. Irrelevant for digital sensors
-                                  byref(self.Calib),  # calibration (do not touch)
-                                  byref(p_ch),  # where to write the data
-                                  1000)  # calibration (do not touch)
+                                              ch,  # which channel pressure is being read
+                                              1,
+                                              # 1 means all pressure and analog sensor readings actually measured, not taken for memory. Irrelevant for digital sensors
+                                              byref(self.Calib),  # calibration (do not touch)
+                                              byref(p_ch),  # where to write the data
+                                              1000)  # calibration (do not touch)
                 if (ob1_error_msg != 0):
                     print('Pressure measurement error: %d' % ob1_error_msg)
                     exit(1)
-                p_offsets.append(p_ch.value-ref_p)
-            print('\t\tOffsets (mbar): channel 1 : ' + str(np.round(p_offsets[0],2))
-                  + '; channel 2 : ' + str(np.round(p_offsets[1],2)))
+                p_offsets.append(p_ch.value - ref_p)
+            print('\t\tOffsets (mbar): channel 1 : ' + str(np.round(p_offsets[0], 2))
+                  + '; channel 2 : ' + str(np.round(p_offsets[1], 2)))
         # set all pressures to zero
         for ch in [1, 2]:
             ob1_error_msg = OB1_Set_Press(self.OB1.value,  # which OB-1 is being used
-                                  ch,  # which channel is being controlled
-                                  0,  # which pressure is being set
-                                  byref(self.Calib), 1000)
+                                          ch,  # which channel is being controlled
+                                          0,  # which pressure is being set
+                                          byref(self.Calib), 1000)
             if (ob1_error_msg != 0):
                 print('Pressure setting error: %d' % ob1_error_msg)
                 exit(1)
@@ -509,9 +524,9 @@ class OB1_manager:
                   '\nOnce the tubing is filled with liquid, press any key.')
             ready_for_filling = input('Are you ready? (yes, no) : ')
         ob1_error_msg = OB1_Set_Press(self.OB1.value,  # which OB-1 is being used
-                              ch.id,  # which channel is being controlled
-                              1000,  # which pressure is being set
-                              byref(self.Calib), 1000)
+                                      ch.id,  # which channel is being controlled
+                                      1000,  # which pressure is being set
+                                      byref(self.Calib), 1000)
         if (ob1_error_msg != 0):
             print('Pressure setting error: %d' % ob1_error_msg)
             exit(1)
@@ -549,7 +564,7 @@ class OB1_manager:
 
         # ANY REMAINING TUBING
         fill_more = input('\nDo you need to fill more tubing? (yes, no) : ')
-        while(fill_more=='yes'):
+        while (fill_more == 'yes'):
             ready_for_filling = 'no'
             while (ready_for_filling != 'yes'):
                 print('\nAssemble your setup.' +
@@ -574,7 +589,7 @@ class OB1_manager:
             fill_more = input('Do you need to fill more tubing? (yes, no) : ')
 
         return
-    
+
     # set up the safeguards for a given channel
     def make_channel_safeguards(self, ch):
         add_safeguard = input('Do you want to add a pressure cutoff condition? (yes, no) : ')
@@ -607,7 +622,8 @@ class OB1_manager:
                 flow_bounds.append(0)
                 flow_lnub.append(0)
             else:
-                safeguard_flow_str = input('\t\tInput your flow condition in the format [flow <= x] or [flow >= x] where x is the flow threshold (ul/min) : ')
+                safeguard_flow_str = input(
+                    '\t\tInput your flow condition in the format [flow <= x] or [flow >= x] where x is the flow threshold (ul/min) : ')
                 if (safeguard_flow_str[0:8] == 'flow <= '):
                     flow_bounds.append(float(safeguard_flow_str[8:]))
                     flow_lnub.append(-1)
@@ -625,7 +641,7 @@ class OB1_manager:
 
             safeguard_time = float(input('For how long must the condition be true to trigger the cutoff (seconds) : '))
             safeguard_check_steps.append(
-                int(safeguard_time / self.dt_check)+1)  # convert to number of data points in short-term memory
+                int(safeguard_time / self.dt_check) + 1)  # convert to number of data points in short-term memory
             if (safeguard_check_steps[-1] > self.short_term_memo_size):
                 print('Error: the specified time exceeds short-term memory')
                 continue
@@ -638,7 +654,7 @@ class OB1_manager:
             if (p_cond == 'yes'):
                 ch.safeguard_conds[-1] = ch.safeguard_conds[-1] + safeguard_p_str + ' mbar'
             if (flow_cond == 'yes'):
-                if(p_cond == 'yes'):
+                if (p_cond == 'yes'):
                     ch.safeguard_conds[-1] += ' AND '
                 ch.safeguard_conds[-1] = ch.safeguard_conds[-1] + safeguard_flow_str + ' uL/min'
             ch.safeguard_conds[-1] += ' FOR ' + str(safeguard_time) + ' s'
@@ -657,14 +673,14 @@ class OB1_manager:
         print('\nPressure cutoff conditions summary: ')
         for i in range(ch.num_safeguards):
             print('\tCondition %d: %s' % (i, ch.safeguard_conds[i]))
-        return 
+        return
 
-    # CRUISE CONTROL --------------------------------------------------------------------------------------------------
+        # CRUISE CONTROL --------------------------------------------------------------------------------------------------
 
     # save the starting settings
     def save_settings(self):
         date_time_string = (datetime.datetime.now()).strftime("_%d%m_%H%M")
-        filename = 'logs/start_settings'+date_time_string+'.txt'
+        filename = 'logs/start_settings' + date_time_string + '.txt'
         with open(filename, 'w') as file:
             # record the OB1-computer interaction settings
             file.write('OB1-COMPUTER INTERACTIONS\n')
@@ -676,10 +692,10 @@ class OB1_manager:
 
             # record channel settings
             for ch in self.channels:
-                file.write('CHANNEL '+str(ch.id)+'\n')
-                if(not ch.in_use):
+                file.write('CHANNEL ' + str(ch.id) + '\n')
+                if (not ch.in_use):
                     file.write('NOT IN USE\n')
-                    file.write('END CHANNEL'+str(ch.id)+'\n')
+                    file.write('END CHANNEL' + str(ch.id) + '\n')
                     file.write('\n')
                     continue
                 # initial reference setpoint
@@ -700,7 +716,7 @@ class OB1_manager:
                 for i in range(ch.num_safeguards):
                     file.write(ch.safeguard_conds[i] + '\n')
                 file.write('END SAFEGUARDS\n')
-                file.write('END CHANNEL '+str(ch.id)+'\n')
+                file.write('END CHANNEL ' + str(ch.id) + '\n')
                 file.write('\n')
         return os.path.abspath(filename)
 
@@ -714,12 +730,12 @@ class OB1_manager:
 
         # ask how much medium there is in the source
         for ch in self.channels:
-            if(ch.in_use):
-                ch.medstart = float(input('How much medium is there in the CHANNEL '+str(ch.id)+' source (ml)? : '))
+            if (ch.in_use):
+                ch.medstart = float(input('How much medium is there in the CHANNEL ' + str(ch.id) + ' source (ml)? : '))
 
         # start in reference flow tracking mode
         for ch in self.channels:
-            if(ch.in_use):
+            if (ch.in_use):
                 ch.mode = 0
 
         # start writing the log file
@@ -733,7 +749,7 @@ class OB1_manager:
                                             'P gain', 'I gain', 'D gain']
             for ch in self.channels:
                 for row_entry in row_entries_for_each_channel:
-                    row.append('CH '+str(ch.id)+' '+row_entry)
+                    row.append('CH ' + str(ch.id) + ' ' + row_entry)
             logwriter.writerow(row)
 
         # start the threads
@@ -746,7 +762,7 @@ class OB1_manager:
         try:
             while self.doing_cruise_control:
                 # open a live plot in the main thread if prompted
-                if(self.open_live_plot):
+                if (self.open_live_plot):
                     self.open_live_plot = False
                     self.live_plot_running = True
                     self.live_stmemo_plot()
@@ -760,8 +776,8 @@ class OB1_manager:
 
     # handle interactions and records with the OB-1 during cruise control
     def cruise_control_OB1(self):
-        self.cc_start_time = time.time() # start time of cruise control
-        cc_check_cntr = 0 # counter for how many times the computer has checked on the OB-1
+        self.cc_start_time = time.time()  # start time of cruise control
+        cc_check_cntr = 0  # counter for how many times the computer has checked on the OB-1
 
         while self.doing_cruise_control:
             # HANDLE THE USER INPUT, IF ANY
@@ -770,7 +786,7 @@ class OB1_manager:
                 user_cmd, user_ch, user_cmd_arg0, user_cmd_arg1, user_cmd_arg2 = self.user_cmd_queue.get_nowait()
 
                 # get the channel selected - mind the shift as channels are labelled as 1 and 2 but Pyhton indices start at 0
-                ch=self.channels[int(user_ch)-1]
+                ch = self.channels[int(user_ch) - 1]
 
                 # get the command type
                 if (user_cmd == 0):  # 0 for stopping the cruise control
@@ -778,10 +794,11 @@ class OB1_manager:
                     break
 
                 elif (user_cmd == 1):  # 1 for setting a new reference flow
-                    if(not ch.in_use):
-                        self.OB1_print_queue.put('CHANNEL '+str(ch.id)+' not in use!')
+                    if (not ch.in_use):
+                        self.OB1_print_queue.put('CHANNEL ' + str(ch.id) + ' not in use!')
                     else:
-                        if(ch.mode==1): # if we have been in the constant pressure mode, indicate the mode's changed now
+                        if (
+                                ch.mode == 1):  # if we have been in the constant pressure mode, indicate the mode's changed now
                             ch.mode = 0
                             self.OB1_print_queue.put('Mode changed to flow reference tracking')
                         ch.ref_flow = user_cmd_arg0
@@ -790,7 +807,8 @@ class OB1_manager:
                     if (not ch.in_use):
                         self.OB1_print_queue.put('CHANNEL ' + str(ch.id) + ' not in use!')
                     else:
-                        if(ch.mode==0): # if we have been in the flow reference tracking mode, indicate the mode's changed now
+                        if (
+                                ch.mode == 0):  # if we have been in the flow reference tracking mode, indicate the mode's changed now
                             ch.mode = 1
                             self.OB1_print_queue.put('Mode changed to constant pressure')
                         ch.const_press = user_cmd_arg0
@@ -804,8 +822,9 @@ class OB1_manager:
                         ch.i_gain = user_cmd_arg1
                         ch.d_gain = user_cmd_arg2
 
-                elif (user_cmd == 4):   # 4 for opening a live plot
-                    if (self.threads_just_started or self.live_plot_running):  # only open a new live plot if one isn't already running
+                elif (user_cmd == 4):  # 4 for opening a live plot
+                    if (
+                            self.threads_just_started or self.live_plot_running):  # only open a new live plot if one isn't already running
                         self.OB1_print_queue.put('Live plot already running!')
                     else:
                         self.open_live_plot = True
@@ -833,22 +852,24 @@ class OB1_manager:
                 flow_read_c_double = c_double()  # initialise flow reading
                 # pressure
                 ob1_error_msg = OB1_Get_Press(self.OB1.value,  # which OB-1 is being used
-                                      ch.id,              # which channel pressure is being read
-                                      1,                    # 1 means all pressure and analog sensor readings actually measured, not taken for memory. Irrelevant for digital sensors
-                                      byref(self.Calib),    # calibration (do not touch)
-                                      byref(p_read_c_double),        # where to write the data
-                                      1000                  # calibration (do not touch)
-                                      )
-                if(ob1_error_msg != 0):
+                                              ch.id,  # which channel pressure is being read
+                                              1,
+                                              # 1 means all pressure and analog sensor readings actually measured, not taken for memory. Irrelevant for digital sensors
+                                              byref(self.Calib),  # calibration (do not touch)
+                                              byref(p_read_c_double),  # where to write the data
+                                              1000  # calibration (do not touch)
+                                              )
+                if (ob1_error_msg != 0):
                     print('Pressure measurement error: %d' % ob1_error_msg)
                     exit(1)
-                ch.p_read = p_read_c_double.value   # record the read pressure for the channel
+                ch.p_read = p_read_c_double.value  # record the read pressure for the channel
                 # flow
                 ob1_error_msg = OB1_Get_Sens_Data(self.OB1.value,  # which OB-1 is being used
-                                  ch.id,  # which sensor is being read
-                                  1,    # 1 means all pressure and analog sensor readings actually measured, not taken for memory. Irrelevant for digital sensors
-                                  byref(flow_read_c_double)  # where to write the data
-                                  )  # Acquire_data=1 -> read all the analog values
+                                                  ch.id,  # which sensor is being read
+                                                  1,
+                                                  # 1 means all pressure and analog sensor readings actually measured, not taken for memory. Irrelevant for digital sensors
+                                                  byref(flow_read_c_double)  # where to write the data
+                                                  )  # Acquire_data=1 -> read all the analog values
                 if (ob1_error_msg != 0):
                     print('Flow measurement error: %d' % ob1_error_msg)
                     exit(1)
@@ -856,7 +877,7 @@ class OB1_manager:
 
             # CHECK THE SAFEGUARDS, CUT OFF THE PRESSURE IF NEEDED
             for ch in self.channels:
-                if(ch.in_use):
+                if (ch.in_use):
                     cutoff_condition_true, which_cutoff_condition = self.check_channel_safeguards(ch)
                     if (cutoff_condition_true):
                         self.stop_cruise_control()
@@ -866,11 +887,11 @@ class OB1_manager:
 
             # DO PID CONTROL
             for ch in self.channels:
-                if(ch.in_use):
+                if (ch.in_use):
                     # calculate pressure to supply to the channel
-                    if(ch.mode==0):   # flow reference tracking
+                    if (ch.mode == 0):  # flow reference tracking
                         p = self.channel_PID_controller(ch, ch.flow_read, t_check_relative)
-                    elif(ch.mode==1): # constant pressure
+                    elif (ch.mode == 1):  # constant pressure
                         p = ch.const_press
                     p_c_double = c_double(p)
                     # set the calculated pressure on the OB-1
@@ -879,7 +900,7 @@ class OB1_manager:
                                                   p_c_double,  # which pressure is being set
                                                   byref(self.Calib), 1000  # calibration (do not touch)
                                                   )
-                    if(ob1_error_msg != 0):
+                    if (ob1_error_msg != 0):
                         print('Pressure setting error: %d' % ob1_error_msg)
                         exit(1)
 
@@ -887,18 +908,18 @@ class OB1_manager:
             with self.lock_stmemo:
                 for ch in self.channels:
                     if (ch.in_use):
-                        ch.stmemo_time.append(t_check_relative) # time SINCE THE START OF CRUISE CONTROL
+                        ch.stmemo_time.append(t_check_relative)  # time SINCE THE START OF CRUISE CONTROL
                         ch.stmemo_p.append(ch.p_read)
                         ch.stmemo_flow.append(ch.flow_read)
 
                         # record the controller mode and parameters depending on the mode
                         ch.stmemo_mode.append(ch.mode)
-                        if(ch.mode==0):   # flow reference tracking
+                        if (ch.mode == 0):  # flow reference tracking
                             # flow controller data
                             ch.stmemo_ref_flow.append(ch.ref_flow)
                             # NaNs for the constant pressure setpoint
                             ch.stmemo_const_press.append(np.nan)
-                        elif(ch.mode==1): # constant pressure
+                        elif (ch.mode == 1):  # constant pressure
                             # constant pressure controller data
                             ch.stmemo_const_press.append(ch.const_press)
                             # NaNs for the reference flow
@@ -909,17 +930,18 @@ class OB1_manager:
                         ch.stmemo_d_gain.append(ch.d_gain)
 
                         # for estimated medium left in the source, calculate the estimate first
-                        if(len(ch.stmemo_medleft)==0):
+                        if (len(ch.stmemo_medleft) == 0):
                             ch.medleft = ch.medstart  # at the beginning, the starting volume
-                        elif(ch.medleft_new>=0):   # if medium source has been changed, recorsd this value
+                        elif (ch.medleft_new >= 0):  # if medium source has been changed, recorsd this value
                             ch.medleft = ch.medleft_new
                         else:
                             # estimate using the trapezium rule
-                            ch.medleft = ch.stmemo_medleft[-1] - (0.5 * (ch.flow_read + ch.stmemo_flow[-1]) * self.dt_check / 60000)  # note the conversion factor from ul/min to ml/s
+                            ch.medleft = ch.stmemo_medleft[-1] - (0.5 * (ch.flow_read + ch.stmemo_flow[
+                                -1]) * self.dt_check / 60000)  # note the conversion factor from ul/min to ml/s
                         ch.stmemo_medleft.append(ch.medleft)
 
                         # pop the oldest readings if short-term memory is full
-                        if(len(ch.stmemo_p)>self.short_term_memo_size):
+                        if (len(ch.stmemo_p) > self.short_term_memo_size):
                             ch.stmemo_p.pop(0)
                             ch.stmemo_flow.pop(0)
                             ch.stmemo_time.pop(0)
@@ -931,11 +953,11 @@ class OB1_manager:
                             ch.stmemo_medleft.pop(0)
 
             # LOG THE DATA IF IT'S TIME TO DO SO
-            if(cc_check_cntr % self.log_every_points == 0):
+            if (cc_check_cntr % self.log_every_points == 0):
                 with open(self.logfilepath, 'a', newline='') as logfile:
                     logwriter = csv.writer(logfile)
                     with self.lock_stmemo:
-                        row = [t_check_relative]    # time of the readings - common for both channels
+                        row = [t_check_relative]  # time of the readings - common for both channels
                         for ch in self.channels:
                             if (ch.in_use):
                                 row = row + [
@@ -956,15 +978,16 @@ class OB1_manager:
 
             # UPDATE THE CHECK COUNTER AND WAIT FOR THE NEXT CHECK
             cc_check_cntr += 1  # update the check counter for the next step
-            sleep_time = cc_check_cntr*self.dt_check-(time.time()-self.cc_start_time)   # find sleep time until the next step
-            time.sleep(max(sleep_time,0.0))  # sleep until the next step
+            sleep_time = cc_check_cntr * self.dt_check - (
+                        time.time() - self.cc_start_time)  # find sleep time until the next step
+            time.sleep(max(sleep_time, 0.0))  # sleep until the next step
         return
 
     # handle user input during cruise control
     def cruise_control_user(self):
         while self.doing_cruise_control:
             # sleep for a while to let the OB-1 deal with the previous command
-            if not(self.threads_just_started):
+            if not (self.threads_just_started):
                 time.sleep(self.dt_check)
 
             # First, print messages from the OB-1 handler, if any
@@ -977,46 +1000,46 @@ class OB1_manager:
             # User input
             cmds_on_offer = 'stop, set_ref_flow, set_const_press, set_gains, live_plot'
 
-            user_cmd = input('What would you like to do? ('+cmds_on_offer+'): ')
+            user_cmd = input('What would you like to do? (' + cmds_on_offer + '): ')
 
-            if(user_cmd=='stop'):   # stop the cruise control
+            if (user_cmd == 'stop'):  # stop the cruise control
                 print('Stopping cruise control...')
-                self.user_cmd_queue.put((0,         # command code: 0 for stopping the cruise control
-                                         0,         # channel: irrelevant for cmd 0
-                                         0, 0, 0))   # args: irrelevant for cmd 0
+                self.user_cmd_queue.put((0,  # command code: 0 for stopping the cruise control
+                                         0,  # channel: irrelevant for cmd 0
+                                         0, 0, 0))  # args: irrelevant for cmd 0
                 break
-            elif(user_cmd=='set_ref_flow'):  # set the reference flow
+            elif (user_cmd == 'set_ref_flow'):  # set the reference flow
                 ch_id = float(input("Specify the channel (1,2): "))
                 ref_flow = float(input("Specify the reference flow (ul/min): "))
-                self.user_cmd_queue.put((1,                 # command code: 1 for setting a new reference flow
-                                         ch_id,             # channel
-                                         ref_flow, 0, 0))   # args: zeroth is the new ref flow, others irrelevant
+                self.user_cmd_queue.put((1,  # command code: 1 for setting a new reference flow
+                                         ch_id,  # channel
+                                         ref_flow, 0, 0))  # args: zeroth is the new ref flow, others irrelevant
             elif (user_cmd == 'set_const_press'):  # set a constant pressure
                 ch_id = float(input("Specify the channel (1,2): "))
                 const_press = float(input("Specify the constant pressure (mbar): "))
                 self.user_cmd_queue.put((2,  # command code: 2 for setting a constant pressure
-                                         ch_id,     # channel
+                                         ch_id,  # channel
                                          const_press, 0, 0))
-            elif(user_cmd=='set_gains'):  # set the PI(D?) gains
+            elif (user_cmd == 'set_gains'):  # set the PI(D?) gains
                 ch_id = float(input("Specify the channel (1,2): "))
                 p_gain = float(input("Specify the new P gain: "))
                 i_gain = float(input("Specify the new I gain: "))
                 d_gain = float(input("Specify the new D gain: "))
-                self.user_cmd_queue.put((3,                 # command code: 3 for changing the PI(D?) gains
-                                         ch_id,             # channel
+                self.user_cmd_queue.put((3,  # command code: 3 for changing the PI(D?) gains
+                                         ch_id,  # channel
                                          # args
-                                         p_gain,            # zeroth arg is the new P gain
-                                         i_gain,            # first arg is the new I gain
-                                         d_gain))                # second arg is the new D gain
-            elif(user_cmd=='live_plot'):  # open a live plot
+                                         p_gain,  # zeroth arg is the new P gain
+                                         i_gain,  # first arg is the new I gain
+                                         d_gain))  # second arg is the new D gain
+            elif (user_cmd == 'live_plot'):  # open a live plot
                 self.user_cmd_queue.put((4,  # command code: 4 for stopping the cruise control
-                                         0, # channel: irrelevant for cmd 4
+                                         0,  # channel: irrelevant for cmd 4
                                          0, 0, 0))  # args: irrelevant for cmd 4
-            elif(user_cmd=='change_medium'):
+            elif (user_cmd == 'change_medium'):
                 ch_id = float(input("Specify the channel (1,2): "))
                 medleft_new = float(input("Specify the new starting medium volume (ml): "))
                 self.user_cmd_queue.put((5,  # command code: 5 for changing the medium source
-                                         ch_id, # channel
+                                         ch_id,  # channel
                                          # args
                                          medleft_new, 0, 0))
         return
@@ -1042,7 +1065,7 @@ class OB1_manager:
 
     # check the safeguards, cut off the pressure if conditions met for a given channel
     def check_channel_safeguards(self, ch):
-        if(ch.num_safeguards==0):
+        if (ch.num_safeguards == 0):
             # if no safeguards are specified, return False and 0 (to avoid errors)
             return False, 0
         else:
@@ -1050,22 +1073,28 @@ class OB1_manager:
             with self.lock_stmemo:
                 for i in range(ch.num_safeguards):
                     # condition can only be met if the period considered by the safeguard has elapsed since the beginning
-                    if(len(ch.stmemo_p)>=ch.safeguard_check_steps[i]):
+                    if (len(ch.stmemo_p) >= ch.safeguard_check_steps[i]):
                         p_cutoff_cond_true = (
-                                ((ch.stmemo_p[-ch.safeguard_check_steps[i]:] <= ch.p_bounds[i]).all() and ch.p_lnub[i] == -1)
+                                ((ch.stmemo_p[-ch.safeguard_check_steps[i]:] <= ch.p_bounds[i]).all() and ch.p_lnub[
+                                    i] == -1)
                                 or
-                                ((ch.stmemo_p[-ch.safeguard_check_steps[i]:] >= ch.p_bounds[i]).all() and ch.p_lnub[i] == 1)
+                                ((ch.stmemo_p[-ch.safeguard_check_steps[i]:] >= ch.p_bounds[i]).all() and ch.p_lnub[
+                                    i] == 1)
                                 or
-                                ch.p_lnub[i] == 0 # if no pressure condition is specified, the pressure condition is always true
+                                ch.p_lnub[i] == 0
+                        # if no pressure condition is specified, the pressure condition is always true
                         )
                         flow_cutoff_cond_true = (
-                                ((ch.stmemo_flow[-ch.safeguard_check_steps[i]:] <= ch.flow_bounds[i]).all() and ch.flow_lnub[i] == -1)
+                                ((ch.stmemo_flow[-ch.safeguard_check_steps[i]:] <= ch.flow_bounds[i]).all() and
+                                 ch.flow_lnub[i] == -1)
                                 or
-                                ((ch.stmemo_flow[-ch.safeguard_check_steps[i]:] >= ch.flow_bounds[i]).all() and ch.flow_lnub[i] == 1)
+                                ((ch.stmemo_flow[-ch.safeguard_check_steps[i]:] >= ch.flow_bounds[i]).all() and
+                                 ch.flow_lnub[i] == 1)
                                 or
-                                ch.flow_lnub[i] == 0 # if no flow condition is specified, the flow condition is always true
+                                ch.flow_lnub[i] == 0
+                        # if no flow condition is specified, the flow condition is always true
                         )
-                        if(p_cutoff_cond_true and flow_cutoff_cond_true):
+                        if (p_cutoff_cond_true and flow_cutoff_cond_true):
                             print('!!!PRESSURE CUT-OFF CONDITION %d TRIGGERED!!!' % i)
                             any_cutoff_condition_true = True
                             break
@@ -1079,19 +1108,19 @@ class OB1_manager:
         flerr = ch.ref_flow - flow
 
         # integrate the flow error
-        flerrint = ch.flerrint + flerr*self.dt_check
+        flerrint = ch.flerrint + flerr * self.dt_check
         # limit the integral term for anti-windup
-        ch.flerrint=max(ch.min_flerrint, min(flerrint, ch.max_flerrint))
+        ch.flerrint = max(ch.min_flerrint, min(flerrint, ch.max_flerrint))
 
         # get the derivative component - for the flow itself to avoid kicks as the reference changes
         with self.lock_stmemo:
-            if(len(ch.stmemo_flow)>=1):
-                flder = (flow - ch.stmemo_flow[-1])/(t_check - ch.stmemo_time[-1])
+            if (len(ch.stmemo_flow) >= 1):
+                flder = (flow - ch.stmemo_flow[-1]) / (t_check - ch.stmemo_time[-1])
             else:
                 flder = 0
 
         # calculate the pressure to supply
-        p_calc = ch.p_gain*flerr + ch.i_gain*ch.flerrint + ch.d_gain*flder
+        p_calc = ch.p_gain * flerr + ch.i_gain * ch.flerrint + ch.d_gain * flder
         # clip the pressure to physically possible values (0-2000 mbar) and/or user-defined values
         p = max(max(0, ch.min_press_ctrl), min(p_calc, ch.max_p_ctrl, ch.max_p_ctrl))
 
@@ -1104,42 +1133,42 @@ class OB1_manager:
         plt.ion()  # Turn on interactive mode
         fig_live, axs_live = plt.subplots(nrows=2, ncols=3,
                                           width_ratios=[2, 1, 1], height_ratios=[1, 1],
-                                          figsize=(10 ,5))
+                                          figsize=(10, 5))
 
         # adjust the layout
         fig_live.tight_layout(pad=2.0)
 
         # plot the flow and reference flow in the same subfigure using matplotlib
         # plot formatting
-        axs_live[0,0].grid()
-        axs_live[0,0].set_ylim(bottom=-5, top=120)
-        axs_live[0,0].set_xlabel('Time since cruise control start (s)')
-        axs_live[0,0].set_ylabel('Flow rate (ul/min)')
+        axs_live[0, 0].grid()
+        axs_live[0, 0].set_ylim(bottom=-5, top=120)
+        axs_live[0, 0].set_xlabel('Time since cruise control start (s)')
+        axs_live[0, 0].set_ylabel('Flow rate (ul/min)')
         # start live plot lines for flow and reference flow
-        ch1_flow_line_live, = axs_live[0,0].plot([], [], label='CH 1 Flow',
-                                      linestyle='-', color=self.channels[0].plot_colour)
-        ch1_ref_flow_line_live, = axs_live[0,0].plot([], [], label='CH 1 Ref. flow',
-                                     linestyle='--', color=self.channels[0].ref_colour)
+        ch1_flow_line_live, = axs_live[0, 0].plot([], [], label='CH 1 Flow',
+                                                  linestyle='-', color=self.channels[0].plot_colour)
+        ch1_ref_flow_line_live, = axs_live[0, 0].plot([], [], label='CH 1 Ref. flow',
+                                                      linestyle='--', color=self.channels[0].ref_colour)
         ch2_flow_line_live, = axs_live[0, 0].plot([], [], label='CH 2 Flow',
                                                   linestyle='-', color=self.channels[1].plot_colour)
         ch2_ref_flow_line_live, = axs_live[0, 0].plot([], [], label='CH 2 Ref. flow',
                                                       linestyle='--', color=self.channels[1].ref_colour)
         # show legend
-        axs_live[0,0].legend(loc='upper left')
+        axs_live[0, 0].legend(loc='upper left')
 
         # plot the pressure in a separate subfigure
         # plot formatting
-        axs_live[1,0].grid()
-        axs_live[1,0].set_ylim(bottom=0, top=2000)
+        axs_live[1, 0].grid()
+        axs_live[1, 0].set_ylim(bottom=0, top=2000)
         # plot
-        axs_live[1,0].set_xlabel('Time since cruise control start (s)')
-        axs_live[1,0].set_ylabel('Pressure (mbar)')
+        axs_live[1, 0].set_xlabel('Time since cruise control start (s)')
+        axs_live[1, 0].set_ylabel('Pressure (mbar)')
         # start live plot line for pressure
-        ch1_p_line_live, = axs_live[1,0].plot([], [], label='CH 1 Press.',
-                                   linestyle='-', color=self.channels[0].plot_colour)
+        ch1_p_line_live, = axs_live[1, 0].plot([], [], label='CH 1 Press.',
+                                               linestyle='-', color=self.channels[0].plot_colour)
         # start live plot line for constant pressure setpoint
-        ch1_const_press_line_live, = axs_live[1,0].plot([], [], label='CH 1 Const. press.',
-                                             linestyle='--', color=self.channels[0].ref_colour)
+        ch1_const_press_line_live, = axs_live[1, 0].plot([], [], label='CH 1 Const. press.',
+                                                         linestyle='--', color=self.channels[0].ref_colour)
         # start live plot line for pressure
         ch2_p_line_live, = axs_live[1, 0].plot([], [], label='CH 2 Press.',
                                                linestyle='-', color=self.channels[1].plot_colour)
@@ -1147,21 +1176,21 @@ class OB1_manager:
         ch2_const_press_line_live, = axs_live[1, 0].plot([], [], label='CH 2 Const. press.',
                                                          linestyle='--', color=self.channels[1].ref_colour)
         # show legend
-        axs_live[1,0].legend(loc='upper left')
+        axs_live[1, 0].legend(loc='upper left')
 
         # plot the PID gains for channel 1 in the third subfigure
         # plot formatting
-        axs_live[0,1].grid()
+        axs_live[0, 1].grid()
         # start live plot lines for the gains
-        ch1_p_gain_line_live, = axs_live[0,1].plot([], [], label='CH 1 P gain',
-                                        linestyle='-', color='darkviolet', alpha=0.5)
-        ch1_i_gain_line_live, = axs_live[0,1].plot([], [], label='CH 1 I gain',
-                                        linestyle='-', color='darkorange', alpha=0.5)
-        ch1_d_gain_line_live, = axs_live[0,1].plot([], [], label='CH 1 D gain',
-                                        linestyle='-', color='lightseagreen', alpha=0.5)
+        ch1_p_gain_line_live, = axs_live[0, 1].plot([], [], label='CH 1 P gain',
+                                                    linestyle='-', color='darkviolet', alpha=0.5)
+        ch1_i_gain_line_live, = axs_live[0, 1].plot([], [], label='CH 1 I gain',
+                                                    linestyle='-', color='darkorange', alpha=0.5)
+        ch1_d_gain_line_live, = axs_live[0, 1].plot([], [], label='CH 1 D gain',
+                                                    linestyle='-', color='lightseagreen', alpha=0.5)
         # show legend
         if (self.channels[0].in_use):
-            axs_live[0,1].legend(loc='upper left')
+            axs_live[0, 1].legend(loc='upper left')
 
         # plot the estimated medium left in the source for channel 1 in the fourth subfigure
         # plot formatting
@@ -1172,7 +1201,7 @@ class OB1_manager:
         axs_live[1, 1].set_ylabel('Medium left in source (ml)')
         # start live plot line for pressure
         ch1_medleft_line_live, = axs_live[1, 1].plot([], [], label='CH 1 Medium left',
-                                           linestyle='-', color='gold')
+                                                     linestyle='-', color='gold')
         # show legend
         if (self.channels[0].in_use):
             axs_live[1, 1].legend(loc='upper left')
@@ -1182,13 +1211,13 @@ class OB1_manager:
         axs_live[0, 2].grid()
         # start live plot lines for the gains
         ch2_p_gain_line_live, = axs_live[0, 2].plot([], [], label='CH 2 P gain',
-                                                linestyle='-', color='darkviolet', alpha=0.5)
+                                                    linestyle='-', color='darkviolet', alpha=0.5)
         ch2_i_gain_line_live, = axs_live[0, 2].plot([], [], label='CH 2 I gain',
-                                                linestyle='-', color='darkorange', alpha=0.5)
+                                                    linestyle='-', color='darkorange', alpha=0.5)
         ch2_d_gain_line_live, = axs_live[0, 2].plot([], [], label='CH 2 D gain',
-                                                linestyle='-', color='lightseagreen', alpha=0.5)
+                                                    linestyle='-', color='lightseagreen', alpha=0.5)
         # show legend
-        if(self.channels[1].in_use):
+        if (self.channels[1].in_use):
             axs_live[0, 2].legend(loc='upper left')
 
         # plot the estimated medium left in the source for channel 2 in the fourth subfigure
@@ -1200,45 +1229,46 @@ class OB1_manager:
         axs_live[1, 2].set_ylabel('Medium left in source (ml)')
         # start live plot line for pressure
         ch2_medleft_line_live, = axs_live[1, 2].plot([], [], label='CH 2 Medium left',
-                                                 linestyle='-', color='gold')
+                                                     linestyle='-', color='gold')
         # show legend
         if (self.channels[1].in_use):
             axs_live[1, 2].legend(loc='upper left')
-
 
         # define the plot updater function
         def live_plot_updater(frames):
             with (self.lock_stmemo):
                 # update the flow plot
-                if(self.channels[0].in_use):
+                if (self.channels[0].in_use):
                     ch1_flow_line_live.set_data(self.channels[0].stmemo_time, self.channels[0].stmemo_flow)
                     ch1_ref_flow_line_live.set_data(self.channels[0].stmemo_time, self.channels[0].stmemo_ref_flow)
                 if (self.channels[1].in_use):
                     ch2_flow_line_live.set_data(self.channels[1].stmemo_time, self.channels[1].stmemo_flow)
                     ch2_ref_flow_line_live.set_data(self.channels[1].stmemo_time, self.channels[1].stmemo_ref_flow)
-                axs_live[0,0].relim()
-                axs_live[0,0].autoscale_view()
+                axs_live[0, 0].relim()
+                axs_live[0, 0].autoscale_view()
 
                 # update the pressure plot
-                if(self.channels[0].in_use):
+                if (self.channels[0].in_use):
                     ch1_p_line_live.set_data(self.channels[0].stmemo_time, self.channels[0].stmemo_p)
-                    ch1_const_press_line_live.set_data(self.channels[0].stmemo_time, self.channels[0].stmemo_const_press)
+                    ch1_const_press_line_live.set_data(self.channels[0].stmemo_time,
+                                                       self.channels[0].stmemo_const_press)
                 if (self.channels[1].in_use):
                     ch2_p_line_live.set_data(self.channels[1].stmemo_time, self.channels[1].stmemo_p)
-                    ch2_const_press_line_live.set_data(self.channels[1].stmemo_time, self.channels[1].stmemo_const_press)
-                axs_live[1,0].relim()
-                axs_live[1,0].autoscale_view()
+                    ch2_const_press_line_live.set_data(self.channels[1].stmemo_time,
+                                                       self.channels[1].stmemo_const_press)
+                axs_live[1, 0].relim()
+                axs_live[1, 0].autoscale_view()
 
                 # update the PID gains plot for channel 1
-                if(self.channels[0].in_use):
+                if (self.channels[0].in_use):
                     ch1_p_gain_line_live.set_data(self.channels[0].stmemo_time, self.channels[0].stmemo_p_gain)
                     ch1_i_gain_line_live.set_data(self.channels[0].stmemo_time, self.channels[0].stmemo_i_gain)
                     ch1_d_gain_line_live.set_data(self.channels[0].stmemo_time, self.channels[0].stmemo_d_gain)
-                    axs_live[0,1].relim()
-                    axs_live[0,1].autoscale_view()
+                    axs_live[0, 1].relim()
+                    axs_live[0, 1].autoscale_view()
 
                 # update the medium left plot for channel 1
-                if(self.channels[0].in_use):
+                if (self.channels[0].in_use):
                     ch1_medleft_line_live.set_data(self.channels[0].stmemo_time, self.channels[0].stmemo_medleft)
                     axs_live[1, 1].relim()
                     axs_live[1, 1].autoscale_view()
@@ -1266,8 +1296,8 @@ class OB1_manager:
                     ch2_ref_flow_line_live, ch2_const_press_line_live, \
                     ch2_p_gain_line_live, ch2_i_gain_line_live, ch2_d_gain_line_live,
 
-
                 # create the animator
+
         ani = FuncAnimation(fig_live, live_plot_updater, interval=1000, blit=False,
                             save_count=0,
                             cache_frame_data=False)
@@ -1285,13 +1315,13 @@ class OB1_manager:
     def plot_cc_data(self,
                      # variables plotted always
                      data_time,  # time since cruise control start
-                     data_p,     # pressure (measured at source)
+                     data_p,  # pressure (measured at source)
                      data_flow,  # flow rate (measured at the outlet)
                      data_medleft,  # medium left in the source
                      data_mode,  # controller mode (0 for flow reference tracking, 1 for constant pressure)
-                     data_ref_flow,   # reference flow rate
+                     data_ref_flow,  # reference flow rate
                      data_const_press,  # constant pressure setpoint
-                     data_gains, # P, I, D gains
+                     data_gains,  # P, I, D gains
                      # pressure and flow plot ranges
                      p_range=(-10, 2000),  # pressure range
                      flow_range=(-10, 80),  # flow rate range
@@ -1307,45 +1337,45 @@ class OB1_manager:
 
         # plot the flow and reference flow in the same subfigure using matplotlib
         # plot formatting
-        axs[0,0].grid()
-        axs[0,0].set_ylim(bottom=flow_range[0], top=flow_range[1])
+        axs[0, 0].grid()
+        axs[0, 0].set_ylim(bottom=flow_range[0], top=flow_range[1])
         # plot flow
-        if(self.channels[0].in_use):
-            axs[0,0].plot(data_time[0], data_flow[0], label='CH 1 Flow',
-                        linestyle='-', color=self.channels[0].plot_colour)
-            axs[0,0].plot(data_time[0], data_ref_flow[0], label='CH 1 Ref. flow',
-                        linestyle='--', color=self.channels[0].ref_colour)
+        if (self.channels[0].in_use):
+            axs[0, 0].plot(data_time[0], data_flow[0], label='CH 1 Flow',
+                           linestyle='-', color=self.channels[0].plot_colour)
+            axs[0, 0].plot(data_time[0], data_ref_flow[0], label='CH 1 Ref. flow',
+                           linestyle='--', color=self.channels[0].ref_colour)
         if (self.channels[1].in_use):
             axs[0, 0].plot(data_time[1], data_flow[1], label='CH 2 Flow',
                            linestyle='-', color=self.channels[1].plot_colour)
             axs[0, 0].plot(data_time[1], data_ref_flow[1], label='CH 2 Ref. flow',
                            linestyle='--', color=self.channels[1].ref_colour)
-        axs[0,0].set_xlabel('Time since cruise control start (s)')
-        axs[0,0].set_ylabel('Flow rate (ul/min)')
-        axs[0,0].legend(loc='upper left')
+        axs[0, 0].set_xlabel('Time since cruise control start (s)')
+        axs[0, 0].set_ylabel('Flow rate (ul/min)')
+        axs[0, 0].legend(loc='upper left')
 
         # plot the pressure in a separate subfigure
         # plot formatting
-        axs[1,0].grid()
-        axs[1,0].set_ylim(bottom=p_range[0], top=p_range[1])
+        axs[1, 0].grid()
+        axs[1, 0].set_ylim(bottom=p_range[0], top=p_range[1])
         # plot pressure
-        if(self.channels[0].in_use):
-            axs[1,0].plot(data_time[0], data_p[0], label='CH 1 Press.',
-                        linestyle='-', color=self.channels[0].plot_colour)
-            axs[1,0].plot(data_time[0], data_const_press[0], label='CH 1 Set press.',
-                        linestyle='--', color=self.channels[0].ref_colour)
+        if (self.channels[0].in_use):
+            axs[1, 0].plot(data_time[0], data_p[0], label='CH 1 Press.',
+                           linestyle='-', color=self.channels[0].plot_colour)
+            axs[1, 0].plot(data_time[0], data_const_press[0], label='CH 1 Set press.',
+                           linestyle='--', color=self.channels[0].ref_colour)
         if (self.channels[1].in_use):
             axs[1, 0].plot(data_time[1], data_p[1], label='CH 2 Press.',
                            linestyle='-', color=self.channels[1].plot_colour)
             axs[1, 0].plot(data_time[1], data_const_press[1], label='CH 2 Set press.',
                            linestyle='--', color=self.channels[1].ref_colour)
-        axs[1,0].set_xlabel('Time since cruise control start (s)')
-        axs[1,0].set_ylabel('Pressure (mbar)')
-        axs[1,0].legend(loc='upper left')
+        axs[1, 0].set_xlabel('Time since cruise control start (s)')
+        axs[1, 0].set_ylabel('Pressure (mbar)')
+        axs[1, 0].legend(loc='upper left')
 
         # plot the PID gains for channel 1
         axs[0, 1].grid()
-        if(self.channels[0].in_use):
+        if (self.channels[0].in_use):
             # plot the gains
             axs[0, 1].plot(data_time[0], data_gains['P'][0], label='CH 1 P gain',
                            linestyle='-', color='darkviolet', alpha=0.5)
@@ -1358,7 +1388,7 @@ class OB1_manager:
 
         # plot the estimated medium left for channel 1
         axs[1, 1].grid()
-        if(self.channels[0].in_use):
+        if (self.channels[0].in_use):
             axs[1, 1].set_ylim(bottom=0, top=55)
             # plot
             axs[1, 1].set_xlabel('Time since cruise control start (s)')
@@ -1413,7 +1443,7 @@ class OB1_manager:
                           data_const_press=[self.channels[0].stmemo_const_press, self.channels[1].stmemo_const_press],
                           data_gains={'P': [self.channels[0].stmemo_p_gain, self.channels[1].stmemo_p_gain],
                                       'I': [self.channels[0].stmemo_i_gain, self.channels[1].stmemo_i_gain],
-                                      'D': [self.channels[0].stmemo_d_gain, self.channels[1].stmemo_d_gain],},
+                                      'D': [self.channels[0].stmemo_d_gain, self.channels[1].stmemo_d_gain], },
                           plotfilename=plotfilename)
         return
 
@@ -1425,7 +1455,7 @@ class OB1_manager:
                  show_safeguards=False,
                  ):
         # read the log file
-        log_df = pd.read_csv(logfilename, na_values='N/A')   # get the dataframe from csv
+        log_df = pd.read_csv(logfilename, na_values='N/A')  # get the dataframe from csv
         # get the data for time, pressure, flow
         log_time = [log_df['Time (s)'].to_numpy(), log_df['Time (s)'].to_numpy()]
         log_p = [log_df['CH 1 Pressure (mbar)'].to_numpy(), log_df['CH 2 Pressure (mbar)'].to_numpy()]
@@ -1434,12 +1464,14 @@ class OB1_manager:
         log_medleft = [log_df['CH 1 Medium left (ml)'].to_numpy(), log_df['CH 2 Medium left (ml)'].to_numpy()]
         # get the data for controller mode, reference flow and constant pressure setpoint
         log_mode = [log_df['CH 1 Mode'].to_numpy(), log_df['CH 2 Mode'].to_numpy()]
-        log_ref_flow = [log_df['CH 1 Reference flow (ul/min)'].to_numpy(), log_df['CH 2 Reference flow (ul/min)'].to_numpy()]
-        log_const_press = [log_df['CH 1 Constant pressure (mbar)'].to_numpy(), log_df['CH 2 Reference flow (ul/min)'].to_numpy()]
+        log_ref_flow = [log_df['CH 1 Reference flow (ul/min)'].to_numpy(),
+                        log_df['CH 2 Reference flow (ul/min)'].to_numpy()]
+        log_const_press = [log_df['CH 1 Constant pressure (mbar)'].to_numpy(),
+                           log_df['CH 2 Reference flow (ul/min)'].to_numpy()]
         # get the data for the gains
-        log_gains={'P': [log_df['CH 1 P gain'].to_numpy(), log_df['CH 1 P gain'].to_numpy()],
-                   'I': [log_df['CH 1 I gain'].to_numpy(), log_df['CH 1 I gain'].to_numpy()],
-                   'D': [log_df['CH 1 D gain'].to_numpy(), log_df['CH 1 D gain'].to_numpy()]}
+        log_gains = {'P': [log_df['CH 1 P gain'].to_numpy(), log_df['CH 1 P gain'].to_numpy()],
+                     'I': [log_df['CH 1 I gain'].to_numpy(), log_df['CH 1 I gain'].to_numpy()],
+                     'D': [log_df['CH 1 D gain'].to_numpy(), log_df['CH 1 D gain'].to_numpy()]}
 
         # plot the data
         self.plot_cc_data(data_time=log_time, data_p=log_p, data_flow=log_flow,
@@ -1454,14 +1486,14 @@ class OB1_manager:
 # OB-1 CHANNEL MANAGER CLASS -------------------------------------------------------------------------------------------
 class channel_manager:
     def __init__(self, id=1):
-        self.in_use = False # by default, channel unused
-        self.id = id    # channel ID: 1 or 2
+        self.in_use = False  # by default, channel unused
+        self.id = id  # channel ID: 1 or 2
 
         # colours for plotting
-        plot_colours=['navy', 'darkred']
-        ref_colours=['steelblue', 'firebrick']
-        self.plot_colour=plot_colours[id-1]
-        self.ref_colour=ref_colours[id-1]
+        plot_colours = ['navy', 'darkred']
+        ref_colours = ['steelblue', 'firebrick']
+        self.plot_colour = plot_colours[id - 1]
+        self.ref_colour = ref_colours[id - 1]
 
         # short-term memory for control and logging#
         # initialise short-term memory for the pressure, the flow and the measurement times
