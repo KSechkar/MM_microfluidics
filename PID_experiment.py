@@ -1,6 +1,8 @@
 # PID_EXPERIMENT.PY
 # Run a regular mother machine experiment with PID control
 
+EMULATING = True
+
 # IMPORTS --------------------------------------------------------------------------------------------------------------
 # PYTHON PACKAGES
 import time, datetime
@@ -13,13 +15,18 @@ import os
 import csv
 import queue
 
-# ELVEFLOW SDK
-import sys
-sys.path.append(r'C:\Users\hslab1\Documents\ESI\ESI_SDK\DLL64')#add the path of the library here
-sys.path.append(r'C:\Users\hslab1\Documents\ESI\ESI_SDK\Python_64')#add the path of the LoadElveflow.py
-from ctypes import *
-from array import array
-from Elveflow64 import *
+# ELVEFLOW SDK - if not emulating
+if not(EMULATING):
+    import sys
+    sys.path.append(r'C:\Users\hslab1\Documents\ESI\ESI_SDK\DLL64')#add the path of the library here
+    sys.path.append(r'C:\Users\hslab1\Documents\ESI\ESI_SDK\Python_64')#add the path of the LoadElveflow.py
+    from ctypes import *
+    from array import array
+    from Elveflow64 import *
+
+# ELVEFLOW EMULATOR
+else:
+    from emulator import *
 
 # OB-1 MANAGER CLASS ---------------------------------------------------------------------------------------------------
 class OB1_manager:

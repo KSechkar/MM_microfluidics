@@ -12,15 +12,17 @@ import tkinter, tkinter.filedialog
 import os
 import csv
 import queue
-
-# ELVEFLOW SDK
-import sys
-
-sys.path.append(r'C:\Users\hslab1\Documents\ESI\ESI_SDK\DLL64')  # add the path of the library here
-sys.path.append(r'C:\Users\hslab1\Documents\ESI\ESI_SDK\Python_64')  # add the path of the LoadElveflow.py
 from ctypes import *
 from array import array
-from Elveflow64 import *
+
+# ELVEFLOW SDK
+# import sys
+# sys.path.append(r'D:\Users\hslab1\Documents\ESI\ESI_SDK\DLL64')  # add the path of the library here
+# sys.path.append(r'C:\Users\hslab1\Documents\ESI\ESI_SDK\Python_64')  # add the path of the LoadElveflow.py
+# from Elveflow64 import *
+
+# EMULATOR (COMMENT OUT TO USE THE SDK AND VICE VERSA)
+from emulator import *
 
 
 # OB-1 MANAGER CLASS ---------------------------------------------------------------------------------------------------
@@ -146,7 +148,7 @@ class OB1_manager:
                                              # 0 if calibrated for water, 1 if calibrated for isopropanol - OUR SENSORS ARE CALIBRATED FOR WATER
                                              7,
                                              # resolution bits (NOT the exact number thereof! refer to the walkthrough)
-                                             0  # voltage for custom ana sensors - IRRELEVANT AS OUR SENSORS ARE DIGITAL
+                                             0  # voltage for custom analogue sensors - IRRELEVANT AS OUR SENSORS ARE DIGITAL
                                              )
                 if (ob1_error_msg != 0):
                     print('Sensor addition error: %d' % ob1_error_msg)
@@ -853,8 +855,7 @@ class OB1_manager:
                 # pressure
                 ob1_error_msg = OB1_Get_Press(self.OB1.value,  # which OB-1 is being used
                                               ch.id,  # which channel pressure is being read
-                                              1,
-                                              # 1 means all pressure and analog sensor readings actually measured, not taken for memory. Irrelevant for digital sensors
+                                              1,      # 1 means all pressure and analog sensor readings actually measured, not taken for memory. Irrelevant for digital sensors
                                               byref(self.Calib),  # calibration (do not touch)
                                               byref(p_read_c_double),  # where to write the data
                                               1000  # calibration (do not touch)
@@ -1059,6 +1060,10 @@ class OB1_manager:
                                       0,  # which pressure is being set
                                       byref(self.Calib), 1000  # calibration (do not touch)
                                       )
+
+        # destroy the OB-1 communications
+        ob1_error_msg = OB1_Destructor(self.OB1.value  # which OB-1 is being used
+                                       )
 
         print('Cruise control stopped')
         return
