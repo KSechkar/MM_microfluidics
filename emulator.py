@@ -1,14 +1,13 @@
 # EMULATOR.PY - emulator of Elveflow SDK for prototyping code without the OB1 and/or the valve connected
 
 # PACKAGE IMPORTS
+import os
 from math import pi
 from ctypes import *
+import tkinter.filedialog
 
-# elveflow imports - SELECTIVE!
-import sys
-sys.path.append(r'D:\CODE\MM_microfluidics\Elveflow_SDK\DLL64')#add the path of the library here
-sys.path.append(r'D:\CODE\MM_microfluidics\Elveflow_SDK\Python_64')#add the path of the LoadElveflow.py
-from Elveflow64 import Elveflow_Calibration_Default, Elveflow_Calibration_Load, Elveflow_Calibration_Save
+import numpy as np
+
 
 # EMULATED OB1 CLASS DEFINITION ----------------------------------------------------------------------------
 # an object of this class stores the channel pressures
@@ -54,6 +53,7 @@ emulator_L_cm = 10  # resistor length [cm]
 emulator_res = tubing_res_calc(emulator_R_um, emulator_L_cm)
 
 OB1_em = emulated_OB1()
+OB1_em.set_resistances([emulator_res, emulator_res])
 
 # DEFINITIONS OF SDK FUNCTION ANALOGUES --------------------------------------------------------------------
 # initialise the OB-1
@@ -111,7 +111,7 @@ def OB1_Add_Sens(
         customsens_voltage_5_to_25 = 0
 ):
     # set sensor pressure
-    OB1_em.ch_sensors_present[channel_1_to_4] = True
+    OB1_em.ch_sensors_present[channel_1_to_4-1] = True
 
     # define error message
     # TBD: make it consistent with the SDK manual. For now, always 0 (all OK)
@@ -134,7 +134,8 @@ def OB1_Get_Sens_Data(
         sens_data
 ):
     # set readings
-    sens_data.contents.value=OB1_em.get_flow(channel_1_to_4)
+    sens_data_ptr = cast(sens_data, POINTER(c_double))
+    sens_data_ptr.contents.value=OB1_em.get_flow(channel_1_to_4-1)
 
     # define error message
     # TBD: make it consistent with the SDK manual. For now, always 0 (all OK)
@@ -160,7 +161,8 @@ def OB1_Get_Press(
         calib_array_length = 1000
 ):
     # set readings
-    pressure.contents.value = OB1_em.ch_pressures[channel_1_to_4]
+    pressure_ptr = cast(pressure, POINTER(c_double))
+    pressure_ptr.contents.value = OB1_em.ch_pressures[channel_1_to_4-1]
 
     # define error message
     # TBD: make it consistent with the SDK manual. For now, always 0 (all OK)
@@ -184,8 +186,11 @@ def OB1_Set_Press(
         # calibration array length (do not touch!)
         calib_array_length = 1000
 ):
-    # set pressure
-    OB1_em.ch_pressures[channel_1_to_4]=pressure
+    # set pressure - handling the cases when a pressure is a Python int/float or a c_double
+    if(isinstance(pressure, (int, float))):
+        OB1_em.ch_pressures[channel_1_to_4 - 1] = pressure
+    else:
+        OB1_em.ch_pressures[channel_1_to_4 - 1] = pressure.value
 
     # define error message
     # TBD: make it consistent with the SDK manual. For now, always 0 (all OK)
@@ -209,9 +214,13 @@ def OB1_Set_All_Press(
         # calibration array length (do not touch!)
         calib_array_length = 1000
 ):
-    # set pressures
-    for i in range(0,pressure_array_length):
-        OB1_em.ch_pressures[i]=pressure_array_in[i]
+    # set pressures - handling the cases when a pressure is a Python int/float or a ctypes list
+    if(isinstance(pressure_array_in, (list, tuple, np.ndarray))):
+        for i in range(0, pressure_array_length):
+            OB1_em.ch_pressures[i] = pressure_array_in[i]
+    else:
+        for i in range(0,pressure_array_length):
+            OB1_em.ch_pressures[i]=pressure_array_in[i].value
 
     # define error message
     # TBD: make it consistent with the SDK manual. For now, always 0 (all OK)
@@ -222,7 +231,7 @@ def OB1_Set_All_Press(
 
 
 # calibrate the OB-1
-# in the emulator, just return a default Elveflow calibration array
+# in the emulator, just return a 1000-long array of zeros
 def OB1_Calib(
         # reference to which OB-1 is being used
         OB1_ID,
@@ -231,8 +240,97 @@ def OB1_Calib(
         # calibration array length (do not touch!)
         calib_array_length = 1000
 ):
-    # get the deafult Elveflow Calibration array
-    calib_array_out=Elveflow_Calibration_Default(calib_array_out, calib_array_length)
+    # get the all-zeros Calibration array
+    for i in range(0,calib_array_length):
+        calib_array_out[i]=0
+
+    # define error message
+    # TBD: make it consistent with the SDK manual. For now, always 0 (all OK)
+    ob1_error_msg = 0
+
+    # return error message
+    return ob1_error_msg
+
+# get a default calibration
+# in the emulator, just return a 1000-long array of zeros
+def Elveflow_Calibration_Default(
+        # calibration array
+        calib_array_out,
+        # calibration array length (do not touch!)
+        calib_array_length = 1000
+):
+    # get the all-zeros Calibration array
+    calib_array_ptr = cast(calib_array_out, POINTER(c_double * calib_array_length))
+    calib_array = calib_array_ptr.contents
+    for i in range(0, calib_array_length):
+        calib_array[i] = 0
+
+    # define error message
+    # TBD: make it consistent with the SDK manual. For now, always 0 (all OK)
+    ob1_error_msg = 0
+
+    # return error message
+    return ob1_error_msg
+
+# load a calibration
+def Elveflow_Calibration_Load(
+        # calibration file path
+        path,
+        # calibration array
+        calib_array_out,
+        # calibration array length (do not touch!)
+        calib_array_length = 1000
+):
+    # convert path to string
+    path_str = path.decode('ascii')
+
+    # check if path exists, get path from a dialogue window if not
+    if os.path.exists(path_str):
+        # open the file at the path
+        with open(path_str, 'rb') as calib_file:
+            data = calib_file.read()
+    else:
+        # open the file chosen by the user
+        with tkinter.filedialog.askopenfile(mode='rb') as calib_file:
+            data = calib_file.read()
+
+    # get calibration array values from binary data
+    calib_array_out.from_buffer_copy(data)
+
+    # define error message
+    # TBD: make it consistent with the SDK manual. For now, always 0 (all OK)
+    ob1_error_msg = 0
+
+    # return error message
+    return ob1_error_msg
+
+# load a calibration
+def Elveflow_Calibration_Save(
+        # calibration file path
+        path,
+        # calibration array
+        calib_array_out,
+        # calibration array length (do not touch!)
+        calib_array_length = 1000
+):
+    # get the all-zeros Calibration array
+    calib_array_ptr = cast(calib_array_out, POINTER(c_double * calib_array_length))
+    calib_array = calib_array_ptr.contents
+
+    # convert path to string
+    path_str = path.decode('ascii')
+
+    # check if path exists, get path from a dialogue window if not
+    if os.path.exists(path_str):
+        path_str=tkinter.filedialog.asksaveasfilename()
+
+    # open the file at the path
+    with open(path_str, 'wb') as f:
+        # Get raw bytes from the array
+        raw_data = string_at(calib_array, calib_array_length)
+        # write the raw bytes into the file
+        f.write(raw_data)
+
 
     # define error message
     # TBD: make it consistent with the SDK manual. For now, always 0 (all OK)
