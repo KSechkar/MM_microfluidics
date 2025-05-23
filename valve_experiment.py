@@ -822,8 +822,10 @@ class OB1_manager:
                     file.write('END CHANNEL'+str(ch.id)+'\n')
                     file.write('\n')
                     continue
+
+                file.write('END FLOW CONTROLLER\n')
                 # initial reference setpoint
-                file.write('ref_flow = ' + str(ch.ref_flow) + ' ul/min\n')
+                file.write('ref_flow = ' + str(float(ch.ref_flow)) + ' ul/min\n')
                 # controller gain
                 file.write('p_gain = ' + str(ch.p_gain) + '\n')
                 file.write('i_gain = ' + str(ch.i_gain) + '\n')

@@ -16,13 +16,16 @@ from ctypes import *
 from array import array
 
 # ELVEFLOW SDK
-# import sys
-# sys.path.append(r'D:\Users\hslab1\Documents\ESI\ESI_SDK\DLL64')  # add the path of the library here
-# sys.path.append(r'C:\Users\hslab1\Documents\ESI\ESI_SDK\Python_64')  # add the path of the LoadElveflow.py
-# from Elveflow64 import *
+import sys
+sys.path.append(r'D:\Users\hslab1\Documents\ESI\ESI_SDK\DLL64')  # add the path of the library here
+sys.path.append(r'C:\Users\hslab1\Documents\ESI\ESI_SDK\Python_64')  # add the path of the LoadElveflow.py
+from Elveflow64 import *
 
-# EMULATOR (COMMENT OUT TO USE THE SDK AND VICE VERSA)
-from emulator import *
+# # EMULATOR (COMMENT OUT TO USE THE SDK AND VICE VERSA)
+# from emulator import *
+#
+# # UNCOMMENT TO EMULATE ON A LAPTOP
+# matplotlib.use('tkagg')
 
 
 # OB-1 MANAGER CLASS ---------------------------------------------------------------------------------------------------
@@ -700,8 +703,10 @@ class OB1_manager:
                     file.write('END CHANNEL' + str(ch.id) + '\n')
                     file.write('\n')
                     continue
+
+                file.write('END FLOW CONTROLLER\n')
                 # initial reference setpoint
-                file.write('ref_flow = ' + str(ch.ref_flow) + ' ul/min\n')
+                file.write('ref_flow = ' + str(float(ch.ref_flow)) + ' ul/min\n')
                 # controller gain
                 file.write('p_gain = ' + str(ch.p_gain) + '\n')
                 file.write('i_gain = ' + str(ch.i_gain) + '\n')
@@ -809,8 +814,7 @@ class OB1_manager:
                     if (not ch.in_use):
                         self.OB1_print_queue.put('CHANNEL ' + str(ch.id) + ' not in use!')
                     else:
-                        if (
-                                ch.mode == 0):  # if we have been in the flow reference tracking mode, indicate the mode's changed now
+                        if (ch.mode == 0):  # if we have been in the flow reference tracking mode, indicate the mode's changed now
                             ch.mode = 1
                             self.OB1_print_queue.put('Mode changed to constant pressure')
                         ch.const_press = user_cmd_arg0

@@ -28,6 +28,9 @@ if not(EMULATING):
 else:
     from emulator import *
 
+# UNCOMMENT TO EMULATE ON A LAPTOP
+matplotlib.use('tkagg')
+
 # OB-1 MANAGER CLASS ---------------------------------------------------------------------------------------------------
 class OB1_manager:
     # INITIALISATION AND SETUP -----------------------------------------------------------------------------------------
@@ -673,7 +676,7 @@ class OB1_manager:
             file.write('\n')
             file.write('FLOW CONTROLLER\n')
             # initial reference setpoint
-            file.write('ref_flow = ' + str(self.ref_flow) + ' ul/min\n')
+            file.write('ref_flow = ' + str(float(self.ref_flow)) + ' ul/min\n')
             # controller gain
             file.write('p_gain = ' + str(self.p_gain) + '\n')
             file.write('i_gain = ' + str(self.i_gain) + '\n')
