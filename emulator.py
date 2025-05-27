@@ -241,8 +241,10 @@ def OB1_Calib(
         calib_array_length = 1000
 ):
     # get the all-zeros Calibration array
-    for i in range(0,calib_array_length):
-        calib_array_out[i]=0
+    calib_array_ptr = cast(calib_array_out, POINTER(c_double * calib_array_length))
+    calib_array = calib_array_ptr.contents
+    for i in range(0, calib_array_length):
+        calib_array[i] = 0
 
     # define error message
     # TBD: make it consistent with the SDK manual. For now, always 0 (all OK)
@@ -295,7 +297,10 @@ def Elveflow_Calibration_Load(
             data = calib_file.read()
 
     # get calibration array values from binary data
-    calib_array_out.from_buffer_copy(data)
+    calib_array_ptr = cast(calib_array_out, POINTER(c_double * calib_array_length))
+    calib_array = calib_array_ptr.contents
+    for i in range(0, calib_array_length):
+        calib_array[i] = data[i]
 
     # define error message
     # TBD: make it consistent with the SDK manual. For now, always 0 (all OK)
@@ -321,7 +326,7 @@ def Elveflow_Calibration_Save(
     path_str = path.decode('ascii')
 
     # check if path exists, get path from a dialogue window if not
-    if os.path.exists(path_str):
+    if (not os.path.exists(path_str)):
         path_str=tkinter.filedialog.asksaveasfilename()
 
     # open the file at the path

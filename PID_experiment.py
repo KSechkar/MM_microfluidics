@@ -14,22 +14,21 @@ import tkinter, tkinter.filedialog
 import os
 import csv
 import queue
+from ctypes import *
+from array import array
 
 # ELVEFLOW SDK - if not emulating
 if not(EMULATING):
     import sys
     sys.path.append(r'C:\Users\hslab1\Documents\ESI\ESI_SDK\DLL64')#add the path of the library here
     sys.path.append(r'C:\Users\hslab1\Documents\ESI\ESI_SDK\Python_64')#add the path of the LoadElveflow.py
-    from ctypes import *
-    from array import array
     from Elveflow64 import *
+
 
 # ELVEFLOW EMULATOR
 else:
     from emulator import *
-
-# UNCOMMENT TO EMULATE ON A LAPTOP
-matplotlib.use('tkagg')
+    matplotlib.use('tkagg')
 
 # OB-1 MANAGER CLASS ---------------------------------------------------------------------------------------------------
 class OB1_manager:
@@ -66,7 +65,7 @@ class OB1_manager:
         while True:
             self.Calib = (c_double * 1000)()  # Always define array this way, calibration should have 1000 elements
             calib_type = input('Select OB-1 calibration (default, load, new ) : ')
-            Calib_path = 'C:\\Users\\Public\\Desktop\\Calibration\\Calib.txt'
+            Calib_path = r'C:\Users\Public\Desktop\Calibration\Calib'
             if calib_type == 'default':
                 ob1_error_msg = Elveflow_Calibration_Default(byref(self.Calib), 1000)
                 if (ob1_error_msg != 0):
@@ -105,7 +104,7 @@ class OB1_manager:
                 if(ob1_error_msg != 0):
                     print('OB-1 calibration error: %d' % ob1_error_msg)
                     exit(1)
-                print('!')
+                print('Calibartion complete')
                 ob1_error_msg = Elveflow_Calibration_Save(
                     Calib_path.encode('ascii'),
                     byref(self.Calib), 1000)
