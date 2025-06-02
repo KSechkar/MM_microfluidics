@@ -55,7 +55,7 @@ emulator_res = tubing_res_calc(emulator_R_um, emulator_L_cm)
 OB1_em = emulated_OB1()
 OB1_em.set_resistances([emulator_res, emulator_res])
 
-# DEFINITIONS OF SDK FUNCTION ANALOGUES --------------------------------------------------------------------
+# DEFINITIONS OF SDK FUNCTION ANALOGUES FOR THE OB-1 -------------------------------------------------------------------
 # initialise the OB-1
 # in the emulator, just set the OB-1 name string and reference
 def OB1_Initialization(
@@ -343,3 +343,43 @@ def Elveflow_Calibration_Save(
 
     # return error message
     return ob1_error_msg
+
+
+# EMULATED VALVE CLASS DEFINITION ----------------------------------------------------------------------------
+# an object of this class stores the channel pressures
+# and the resistance of the setup
+class emulated_valve:
+    # initialise the object with 'None's and '-1's in the fields
+    def __init__(self):
+        # OB-1 name string
+        self.Device_Name = 'emulated_valve'.encode('ascii')
+
+        # OB-1 reference
+        self.valve_ID = None
+
+        # which inlet the valve is currently set to
+        self.inlet = -1
+
+        return
+
+    # find the currently set valve inlet
+    def get_inlet(self):
+        return self.inlet
+
+    # set the valve inlet
+    def set_resistances(self, inlet):
+        self.inlet = inlet
+        return
+
+
+# INITIALISING THE VALVE EMULATOR -------------------------------------------------------------------------------
+emulator_R_um = 100 # resistor radius [um]
+emulator_L_cm = 10  # resistor length [cm]
+emulator_res = tubing_res_calc(emulator_R_um, emulator_L_cm)
+
+OB1_em = emulated_OB1()
+OB1_em.set_resistances([emulator_res, emulator_res])
+
+# DEFINITIONS OF SDK FUNCTION ANALOGUES FOR THE MUX DISTRIBUTOR VALVE --------------------------------------------------
+# initiate the valve device
+def MUX_DRI_Initialization():
