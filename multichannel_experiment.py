@@ -1,7 +1,7 @@
 # MULTICHANNEL_EXPERIMENT.PY
 # Run a mother machine experiment with PID control for one OR MULTILPLE channels
 
-EMULATING = False
+EMULATING = True
 
 # IMPORTS --------------------------------------------------------------------------------------------------------------
 # PYTHON PACKAGES
@@ -182,7 +182,7 @@ class OB1_manager:
             if (ch.in_use):
                 print('Set up the controller for CHANNEL ' + str(ch.id))
                 if (ch.still_todo['FLOW CONTROLLER']):
-                    ch.ref_flow = c_double(float(input('Specify the reference flow rate (ul/min) : ')))
+                    ch.ref_flow = float(input('Specify the reference flow rate (ul/min) : '))
                     ch.p_gain = float(input('Specify the flow controller\'s P gain : '))
                     ch.i_gain = float(input('Specify the flow controller\'s I gain : '))
                     ch.d_gain = float(input('Specify the flow controller\'s D gain : '))
@@ -707,7 +707,7 @@ class OB1_manager:
                     file.write('\n')
                     continue
 
-                file.write('END FLOW CONTROLLER\n')
+                file.write('FLOW CONTROLLER\n')
                 # initial reference setpoint
                 file.write('ref_flow = ' + str(float(ch.ref_flow)) + ' ul/min\n')
                 # controller gain
@@ -1006,7 +1006,7 @@ class OB1_manager:
                 pass
 
             # User input
-            cmds_on_offer = 'stop, set_ref_flow, set_const_press, set_gains, live_plot'
+            cmds_on_offer = 'stop, set_ref_flow, set_const_press, set_gains, change_medium, live_plot'
 
             user_cmd = input('What would you like to do? (' + cmds_on_offer + '): ')
 

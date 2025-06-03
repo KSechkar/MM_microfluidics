@@ -148,7 +148,7 @@ class OB1_manager:
 
         print('\nSET UP THE FLOW CONTROLLER') # ------------------------------------------------------------------------
         if(still_todo['FLOW CONTROLLER']):
-            self.ref_flow = c_double(float(input('Specify the reference flow rate (ul/min) : ')))
+            self.ref_flow = float(input('Specify the reference flow rate (ul/min) : '))
             self.p_gain = float(input('Specify the flow controller\'s P gain : '))
             self.i_gain = float(input('Specify the flow controller\'s I gain : '))
             self.d_gain = float(input('Specify the flow controller\'s D gain : '))
@@ -983,6 +983,10 @@ class OB1_manager:
                                       0,  # which pressure is being set
                                       byref(self.Calib), 1000  # calibration (do not touch)
                                       )
+
+        # destroy the OB-1 communications
+        ob1_error_msg = OB1_Destructor(self.OB1.value  # which OB-1 is being used
+                                       )
 
         print('Cruise control stopped')
         return

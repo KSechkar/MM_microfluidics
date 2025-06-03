@@ -1,7 +1,7 @@
 # VALVE_EXPERIMENT.PY
 # Run a mother machine experiment with a single channel CONNECTED TO A MUX DISTRIBUTOR VALVE
 
-EMULATING = False
+EMULATING = True
 
 # IMPORTS --------------------------------------------------------------------------------------------------------------
 # PYTHON PACKAGES
@@ -51,7 +51,7 @@ class OB1_manager:
             #settings_file = tkinter.filedia.askopenfilename()
             settings_file = tkinter.filedialog.askopenfilename()
             # load settings from the file
-            interactions_still_todo, valve_still_todo = self.load_settings(settings_file)
+            interactions_still_todo = self.load_settings(settings_file)
         else:
             # specify the channel(s) in use
             ch1_in_use = input('Is CHANNEL 1 in use? (yes, no) : ')
@@ -60,7 +60,7 @@ class OB1_manager:
             ch2_in_use = input('Is CHANNEL 2 in use? (yes, no) : ')
             if (ch2_in_use):
                 self.channels[1].in_use=True
-            valve_in_use = input('Are yopu using a VALVE? (yes, no) : ')
+            valve_in_use = input('Are you using a VALVE? (yes, no) : ')
             if(valve_in_use):
                 self.valve.in_use = True
 
@@ -71,7 +71,9 @@ class OB1_manager:
                 ch.still_todo = {'FLOW CONTROLLER': True,
                                  'SAFEGUARDS': True}
             # specify if the settings for the valve need to be selected
-            valve_still_todo = self.valve.in_use
+            if (self.valve.in_use):
+                self.valve.still_todo = {'INTERACTIONS': True,
+                                 'OPERATIONS': True}
 
         # print('\nSET UP THE OB-1')    # ----------------------------------------------------------------------------------
         print('Initialising OB-1...')
@@ -162,9 +164,9 @@ class OB1_manager:
         print('\nSET OB1-COMPUTER INTERACTION PREFERENCES')  # ---------------------------------------------------------
         if (interactions_still_todo):
             self.dt_check = float(input('dt_check: how often you want to check on the OB-1 (seconds) : '))
-            self.dt_log = float(input('dt_log: how often you want to log data (seconds) : '))
+            self.dt_log = float(input('dt_log: how often you want to log OB-1 data (seconds) : '))
             short_term_memo_time = float(
-                input('short_term_memo_time: how long you want to keep ALL most recent data in memory (seconds) : '))
+                input('short_term_memo_time: how long you want to keep ALL most recent OB-1 data in memory (seconds) : '))
             # convert from logging and remembering times to number of data points
             self.log_every_points = int(self.dt_log / self.dt_check)
             self.short_term_memo_size = int(short_term_memo_time / self.dt_check) + 1
@@ -179,7 +181,7 @@ class OB1_manager:
             if(ch.in_use):
                 print('Set up the controller for CHANNEL ' + str(ch.id))
                 if(ch.still_todo['FLOW CONTROLLER']):
-                    ch.ref_flow = c_double(float(input('Specify the reference flow rate (ul/min) : ')))
+                    ch.ref_flow = float(input('Specify the reference flow rate (ul/min) : '))
                     ch.p_gain = float(input('Specify the flow controller\'s P gain : '))
                     ch.i_gain = float(input('Specify the flow controller\'s I gain : '))
                     ch.d_gain = float(input('Specify the flow controller\'s D gain : '))
@@ -214,12 +216,33 @@ class OB1_manager:
             valve_error_msg = MUX_DRI_Initialization("ASRL4::INSTR".encode('ascii'),
                                                      byref(self.valve.instrid))
             if (valve_error_msg != 0):
-                print('Sensor addition error: %d' % ob1_error_msg)
+                print('Valve addition error: %d' % ob1_error_msg)
                 exit(1)
             # get the valve ID value
             self.valve.instridval = self.valve.instrid.value
+            # home the valve (necessary step for our MUX Distribtuion valve)
+            valve_error_msg = MUX_DRI_Send_Command(self.valve.instridval,  # valve ID value
+                                                   Z_MUX_DRI_Rotation_Shortest, # valve action: home the valve
+                                                   [],  # char array for the answer - irrelevant here (needed to get a serial number)
+                                                   0    # length of the answer array - irrelevant here (needed to get a serial number)
+                                                   )
+            if (valve_error_msg != 0):
+                print('Valve homing error: %d' % ob1_error_msg)
+                exit(1)
+
             # set up valve preferences
-            if(valve_still_todo):
+            # VALVE-COMPUTER INTERACTIONS
+            if(self.valve.still_todo['INTERACTIONS']):
+                self.valve.dt_check = float(input('valve_dt_check: how often you want the computer to check on the VALVE (seconds) : '))
+                self.valve.dt_log = float(input('dt_log: how often you want to log VALVE data (seconds) : '))
+                valve_short_term_memo_time = float(
+                    input('valve_short_term_memo_time: how long you want to keep ALL most recent VALVE data in memory (seconds) : '))
+                # convert from logging and remembering times to number of data points
+                self.valve.log_every_points = int(self.valve.dt_log / self.valve.dt_check)
+                self.valve.short_term_memo_size = int(valve_short_term_memo_time / self.valve.dt_check) + 1
+
+            # VALVE OPERATIONS
+            if(self.valve.still_todo['OPERATIONS']):
                 self.valve.mode = input('Specify valve mode (set, pwm) : ')
                 # specify compound-of-interest concentrations in all inlets
                 inlet_cntr = 1
@@ -230,6 +253,7 @@ class OB1_manager:
                     if (user_defined_conc == -1):
                         break
                     inlet_concs.append(user_defined_conc)
+                    inlet_cntr += 1
                 self.valve.inlet_concs = np.array(inlet_concs)
                 # set inlet settings
                 if(self.valve.mode=='set'):
@@ -268,7 +292,7 @@ class OB1_manager:
 
         # GET READY TO DO CRUISE CONTROL -------------------------------------------------------------------------------
         self.doing_cruise_control = False
-        self.logfilepath = ''
+        self.OB1_logfilepath = ''
 
         # create a queue of user commands for the OB-1 thread
         self.user_cmd_queue = queue.Queue()
@@ -525,37 +549,64 @@ class OB1_manager:
                     else:
                         # if in use, start setting the valve up
                         self.valve.in_use = True
-                        valve_still_todo = False
+                        self.valve.still_todo = {'INTERACTIONS': True,
+                                         'OPERATIONS': True}
+                        continue
 
-                        # get the valve mode
-                        self.valve.mode = lines[curr_line].split()[2]
+                elif(lines[curr_line]=='VALVE-COMPUTER INTERACTIONS\n'):
+                    self.valve.still_todo['INTERACTIONS'] = False
+                    curr_line = next_meaningful_line(curr_line)
+                    # get the check time
+                    self.valve.dt_check = float(lines[curr_line].split()[2])
+                    curr_line = next_meaningful_line(curr_line)
+                    # get the log time
+                    self.valve.dt_log = float(lines[curr_line].split()[2])
+                    curr_line = next_meaningful_line(curr_line)
+                    # get the short-term memory time
+                    valve_short_term_memo_time = float(lines[curr_line].split()[2])
+                    curr_line = next_meaningful_line(curr_line)
+                    # convert from logging and remembering times to number of data points
+                    self.valve.log_every_points = int(self.valve.dt_log / self.valve.dt_check)
+                    self.valve.short_term_memo_size = int(valve_short_term_memo_time) / self.valve.dt_check + 1
+
+                    # skip the 'END VALVE-COMPUTER INTERACTIONS' marker line
+                    curr_line = next_meaningful_line(curr_line)
+
+                elif (lines[curr_line] == 'VALVE OPERATIONS\n'):
+                    self.valve.still_todo['OPERATIONS'] = False
+                    curr_line = next_meaningful_line(curr_line)
+                    # get the valve mode
+                    self.valve.mode = lines[curr_line].split()[2]
+                    curr_line = next_meaningful_line(curr_line)
+                    # get the compound of interest concentrations in the valve
+                    inlet_conc_strings = lines[curr_line].split()[2:]
+                    inlet_concs = []
+                    for inlet_cntr in range(0, len(inlet_conc_strings)):
+                        inlet_concs.append(float(inlet_conc_strings[inlet_cntr]))
+                    self.valve.inlet_concs = np.array(inlet_concs)
+                    curr_line = next_meaningful_line(curr_line)
+                    # get other valve specs depending on the mode
+                    if(self.valve.mode=='set'):
+                        # get the starting inlet
+                        self.valve.inlet = int(lines[curr_line].split()[2])
+                    elif(self.valve.mode=='pwm'):
+                        # get the PWM period
+                        self.valve.pwm_period = float(lines[curr_line].split()[2])
                         curr_line = next_meaningful_line(curr_line)
-                        # get the compound of interest concentrations in the valve
-                        inlet_conc_strings = lines[curr_line].split()[2:]
-                        inlet_concs = []
-                        for inlet_cntr in range(0, len(inlet_conc_strings)):
-                            inlet_concs.append(float(inlet_conc_strings[inlet_cntr]))
-                        self.valve.inlet_concs = np.array(inlet_concs)
+                        # get the desired input concentration of the compound of interest
+                        self.valve.input_conc = float(lines[curr_line].split()[2])
+                        self.valve.pwm_update_controls()  # update the valve controls for the selected input conc
                         curr_line = next_meaningful_line(curr_line)
-                        # get other valve specs depending on the mode
-                        if(self.valve.mode=='set'):
-                            # get the starting inlet
-                            self.valve.inlet = int(lines[curr_line].split()[2])
-                        elif(self.valve.mode=='pwm'):
-                            # get the PWM period
-                            self.valve.pwm_period = float(lines[curr_line].split()[2])
-                            curr_line = next_meaningful_line(curr_line)
-                            # get the desired input concentration of the compound of interest
-                            self.valve.input_conc = float(lines[curr_line].split()[2])
-                            self.valve.pwm_update_controls()  # update the valve controls for the selected input conc
-                            curr_line = next_meaningful_line(curr_line)
+
+                    # skip the 'END VALVE OPERATIONS' marker line
+                    curr_line = next_meaningful_line(curr_line)
                 else:
                     # if the line is not recognised, move to the next one
                     curr_line = next_meaningful_line(curr_line)
                     continue
 
         # return the list of settings that still need to be entered manually
-        return interactions_still_todo, valve_still_todo
+        return interactions_still_todo
 
     # check calibration
     def check_calibration(self):
@@ -831,7 +882,7 @@ class OB1_manager:
                     file.write('\n')
                     continue
 
-                file.write('END FLOW CONTROLLER\n')
+                file.write('FLOW CONTROLLER\n')
                 # initial reference setpoint
                 file.write('ref_flow = ' + str(float(ch.ref_flow)) + ' ul/min\n')
                 # controller gain
@@ -877,11 +928,17 @@ class OB1_manager:
 
     # CRUISE CONTROL FUNCTIONS -----------------------------------------------------------------------------------------
     # main thread for cruise control of the microfluidic flow
-    def cruise_control(self, log_filename=r'logs/OB1_PID_log.csv'):
+    def cruise_control(self,
+                       OB1_log_filename=r'logs/OB1_PID_log.csv',
+                       valve_log_filename=r'logs/valve_log.csv'):
         # indicate that cruise control is being done
         self.doing_cruise_control = True
         self.open_live_plot = True  # open a live plot at first
-        self.logfilepath = os.path.abspath(log_filename)
+
+        # get log file paths (including for valve states IF VALVE IN USE)
+        self.OB1_logfilepath = os.path.abspath(OB1_log_filename)
+        if(self.valve.in_use):
+            self.valve.logfilepath = os.path.abspath(valve_log_filename)
 
         # ask how much medium there is in the source - IF VALVE NOT IN USE
         if(not self.valve.in_use):
@@ -897,8 +954,8 @@ class OB1_manager:
             if(ch.in_use):
                 ch.mode = 0
 
-        # start writing the log file
-        with(open(self.logfilepath, 'w', newline='')) as logfile:
+        # start writing the log files (including for valve states IF VALVE IN USE)
+        with(open(self.OB1_logfilepath, 'w', newline='')) as logfile:
             logwriter = csv.writer(logfile)
             row = ['Time (s)']
             row_entries_for_each_channel = ['Pressure (mbar)', 'Flow (ul/min)',
@@ -909,11 +966,16 @@ class OB1_manager:
             for ch in self.channels:
                 for row_entry in row_entries_for_each_channel:
                     row.append('CH '+str(ch.id)+' '+row_entry)
-            valve_entries = ['Valve inlet', 'Valve input conc.', 'Valve duty cycle',
-                             'PWM low inlet', 'PWM high inlet']
-            for row_entry in valve_entries:
-                row.append(row_entry)
             logwriter.writerow(row)
+        if(self.valve.in_use):
+            with(open(self.valve.logfilepath, 'w', newline='')) as logfile:
+                logwriter = csv.writer(logfile)
+                row = ['Time (s)']
+                valve_entries = ['Valve inlet', 'Valve input conc.', 'Valve duty cycle',
+                                 'PWM low inlet', 'PWM high inlet']
+                for row_entry in valve_entries:
+                    row.append(row_entry)
+                logwriter.writerow(row)
 
         # start the threads
         self.threads_just_started = True
@@ -991,9 +1053,11 @@ class OB1_manager:
                     else:
                         self.open_live_plot = True
 
-                elif (user_cmd == 5):  # 5 for changing the medium amount in the source
+                elif (user_cmd == 5):  # 5 for changing the medium amount in the source - not supported if a valve is active
                     if (not ch.in_use):
                         self.print_queue.put('CHANNEL ' + str(ch.id) + ' not in use!')
+                    elif (self.valve.in_use):
+                        self.print_queue.put('Unsupported when VALVE is in use!')
                     else:
                         ch.medleft_new = user_cmd_arg0
             except:
@@ -1113,29 +1177,10 @@ class OB1_manager:
                             ch.stmemo_i_gain.pop(0)
                             ch.stmemo_d_gain.pop(0)
                             ch.stmemo_medleft.pop(0)
-                            
-            # RECORD THE VALVE DATA IN SHORT-TERM MEMORY
-            with self.lock:
-                self.valve.stmemo_time.append(t_check_relative)
-                self.valve.stmemo_inlet.append(self.valve.inlet)
-                self.valve.stmemo_input_conc.append(self.valve.input_conc)
-                if(self.valve.mode=='pwm'):
-                    self.valve.stmemo_pwm_duty_cycle.append(self.valve.pwm_duty_cycle)
-                    self.valve.stmemo_pwm_low_inlet.append(self.valve.pwm_low_inlet)
-                    self.valve.stmemo_pwm_high_inlet.append(self.valve.pwm_high_inlet)
-                # pop the oldest readings if short-term memory is full
-                if (len(self.valve.stmemo_inlet) > self.short_term_memo_size):
-                    self.valve.stmemo_time.pop(0)
-                    self.valve.stmemo_inlet.pop(0)
-                    self.valve.stmemo_input_conc.pop(0)
-                    if (self.valve.mode == 'pwm'):
-                        self.valve.stmemo_pwm_duty_cycle.pop(0)
-                        self.valve.stmemo_pwm_low_inlet.pop(0)
-                        self.valve.stmemo_pwm_high_inlet.pop(0)
 
             # LOG THE DATA IF IT'S TIME TO DO SO
             if(cc_check_cntr % self.log_every_points == 0):
-                with open(self.logfilepath, 'a', newline='') as logfile:
+                with open(self.OB1_logfilepath, 'a', newline='') as logfile:
                     logwriter = csv.writer(logfile)
                     with self.lock:
                         row = [t_check_relative]    # time of the readings - common for both channels
@@ -1156,14 +1201,6 @@ class OB1_manager:
                                     ch.stmemo_p_gain[-1], ch.stmemo_i_gain[-1], ch.stmemo_d_gain[-1]]
                             else:
                                 row = row + [None]*9
-                        if(self.valve.in_use):
-                            row = row + [self.valve.stmemo_inlet[-1], self.valve.stmemo_input_conc[-1]]
-                            if(self.valve.mode=='pwm'):
-                                row = row + [
-                                    self.valve.stmemo_pwm_duty_cycle[-1],
-                                    self.valve.stmemo_pwm_low_inlet[-1],
-                                    self.valve.stmemo_pwm_high_inlet[-1]
-                                ]
                         # record the controller state depdning on the mode
                         logwriter.writerow(row, )
 
@@ -1188,9 +1225,9 @@ class OB1_manager:
                 pass
 
             # User input
-            cmds_on_offer = 'stop, set_ref_flow, set_const_press, set_gains, live_plot'
+            cmds_on_offer = 'stop; set_ref_flow, set_const_press, set_gains; change_medium; set_valve_inlet, set_input_conc; live_plot'
 
-            user_cmd = input('What would you like to do? ('+cmds_on_offer+'): ')
+            user_cmd = input('What would you like to do? \n('+cmds_on_offer+'): ')
             
             # OB-1 COMMANDS --------------------------------------------------------------------------------------
             if(user_cmd=='stop'):   # stop the cruise control
@@ -1247,9 +1284,12 @@ class OB1_manager:
         return
 
     def cruise_control_valve(self):
-        period_cntr = 0 # number of PWM OR inlet change check periods which have passed since the beginning of cruise control
+        curr_pwm_input_set_time = time.time()  # time at which the valve was set to enforce the set PWM input
+        pwm_period_cntr = 0 # number of PWM periods which have passed since the beginning of cruise control
+        valve_check_cntr = 0 # number of checks on the valve by the computer since the beginning of cruise control
+        next_action = 0 # next action: 0 if getting commands/updating stmemo, 1 if switching to high input, 2 if switching to low input
         
-        # set inlet mode - just check for user-prompted inlet changes every dt_check seconds
+        # set inlet mode - just check for user-prompted inlet changes every dt_check seconds (next_action always zero)
         if(self.valve.mode=='set'):
             while (self.doing_cruise_control):
                 # HANDLE THE USER INPUT, IF ANY
@@ -1278,16 +1318,119 @@ class OB1_manager:
                 except:
                     pass
 
+                # RECORD THE VALVE DATA IN SHORT-TERM MEMORY
+                # get the time of record
+                t_check_absolute = time.time()  # get the time of the check - NOT from the start of cruise control
+                t_check_relative = t_check_absolute - self.cc_start_time  # convert to time from the start of cruise control
+                with self.lock:
+                    self.valve.stmemo_time.append(t_check_relative)
+                    self.valve.stmemo_inlet.append(self.valve.inlet)
+                    self.valve.stmemo_input_conc.append(self.valve.input_conc)
+                    # pop the oldest readings if short-term memory is full
+                    if (len(self.valve.stmemo_inlet) > self.valve.short_term_memo_size):
+                        self.valve.stmemo_time.pop(0)
+                        self.valve.stmemo_inlet.pop(0)
+                        self.valve.stmemo_input_conc.pop(0)
+
+                    # LOG THE DATA IF IT'S TIME TO DO SO
+                    if (valve_check_cntr % self.valve.log_every_points == 0):
+                        with open(self.valve.logfilepath, 'a', newline='') as logfile:
+                            logwriter = csv.writer(logfile)
+                            with self.lock:
+                                row = [t_check_relative]  # time of the readings
+                                row = row + [self.valve.stmemo_inlet[-1], self.valve.stmemo_input_conc[-1]]
+                                logwriter.writerow(row, )
+
                 # UPDATE THE PERIOD COUNTER AND WAIT FOR THE NEXT CHECK
-                period_cntr += 1  # update the check counter for the next step
-                sleep_time = period_cntr * self.dt_check - (time.time() - self.cc_start_time)  # find sleep time until the next step
+                valve_check_cntr += 1  # update the check counter for the next step
+                sleep_time = valve_check_cntr * self.valve.dt_check - (time.time() - self.cc_start_time)  # find sleep time until the next step
                 time.sleep(max(sleep_time, 0.0))  # sleep until the next step
         
         # PWM mode
         elif(self.valve.mode=='pwm'):
+            # first action is setting the inlet valve to high if it ever should be high (and to low otherwise)
+            if (self.valve.pwm_duty_cycle >= 0):
+                next_action = 1
+            else:
+                next_action = 2
+            # set the PWM period countrer
+            pwm_period_cntr = 0
+
+            # cruise control loop
             while (self.doing_cruise_control):
-                # set valve inlet to high - if needed at all
-                if(self.valve.pwm_duty_cycle>=0):
+                # act depending on what ought to be done next
+
+                # CHECK ON THE VALVE AND USER COMMANDS
+                if(next_action == 0):
+                    # HANDLE THE USER INPUT, IF ANY
+                    try:
+                        # get the user command and the argument
+                        user_cmd, user_cmd_arg0, user_cmd_arg1, user_cmd_arg2 = self.user_valve_cmd_queue.get_nowait()
+
+                        if (user_cmd == 1):  # 1 for changing the desired PWM conc.
+                            # update controls - will come into effect at the next duty cycle
+                            with self.lock:
+                                self.valve.input_conc = user_cmd_arg0
+                                self.valve.pwm_update_controls()
+                            # report back to the user
+                            self.print_queue.put('Input conc. changed')
+                            # reset the PWM period counter and time at which the valve was set to enforce the given PWM input
+                            pwm_period_cntr = 0
+                            curr_pwm_input_set_time = time.time()
+                            # out of due order, set the inlet valve to high if it ever should be high (and to low otherwise)
+                            if (self.valve.pwm_duty_cycle > 0):
+                                next_action = 1
+                                continue
+                            else:
+                                next_action = 2
+                                continue
+                        else:
+                            self.print_queue.put('ERROR: the valve is in PWM mode')
+                    except:
+                        pass
+                    # RECORD THE VALVE DATA IN SHORT-TERM MEMORY
+                    # get the time of record
+                    t_check_absolute = time.time()  # get the time of the check - NOT from the start of cruise control
+                    t_check_relative = t_check_absolute - self.cc_start_time  # convert to time from the start of cruise control
+                    with self.lock:
+                        self.valve.stmemo_time.append(t_check_relative)
+                        self.valve.stmemo_inlet.append(self.valve.inlet)
+                        self.valve.stmemo_input_conc.append(self.valve.input_conc)
+                        self.valve.stmemo_pwm_duty_cycle.append(self.valve.pwm_duty_cycle)
+                        self.valve.stmemo_pwm_low_inlet.append(self.valve.pwm_low_inlet)
+                        self.valve.stmemo_pwm_high_inlet.append(self.valve.pwm_high_inlet)
+                        # pop the oldest readings if short-term memory is full
+                        if (len(self.valve.stmemo_inlet) > self.short_term_memo_size):
+                            self.valve.stmemo_time.pop(0)
+                            self.valve.stmemo_inlet.pop(0)
+                            self.valve.stmemo_input_conc.pop(0)
+                            self.valve.stmemo_pwm_duty_cycle.pop(0)
+                            self.valve.stmemo_pwm_low_inlet.pop(0)
+                            self.valve.stmemo_pwm_high_inlet.pop(0)
+                    # LOG THE DATA IF IT'S TIME TO DO SO
+                    if (valve_check_cntr % self.valve.log_every_points == 0):
+                        with open(self.valve.logfilepath, 'a', newline='') as logfile:
+                            logwriter = csv.writer(logfile)
+                            with self.lock:
+                                row = [t_check_relative]  # time of the readings
+                                row = row + [self.valve.stmemo_inlet[-1], self.valve.stmemo_input_conc[-1]]
+                                row = row + [
+                                    self.valve.stmemo_pwm_duty_cycle[-1],
+                                    self.valve.stmemo_pwm_low_inlet[-1],
+                                    self.valve.stmemo_pwm_high_inlet[-1]
+                                ]
+                                logwriter.writerow(row, )
+
+                    # update the number of checks which have been performed
+                    valve_check_cntr += 1
+
+
+                # SET VALVE INLET TO HIGH
+                elif(next_action == 1):
+                    # switching to the high inlet again means a PWM period has been completed
+                    pwm_period_cntr += 1
+                    
+                    # now, actually switch the valve to the high state
                     valve_error_msg = MUX_DRI_Set_Valve(self.valve.instridval,  # valve ID value
                                                         c_int32(self.valve.pwm_high_inlet),  # valve inlet
                                                         2  # valve rotation direction (2 for counterclockwise)
@@ -1295,15 +1438,11 @@ class OB1_manager:
                     if (valve_error_msg != 0):
                         print('Valve error: %d' % valve_error_msg)
                         exit(1)
-                    with self.lock:
-                        self.valve.inlet = self.valve.pwm_high_inlet
+                    self.valve.inlet = self.valve.pwm_high_inlet    # no lock as accessed only by thisn thread
 
-                    # sleep for the duration of the duty cycle
-                    sleep_time = (period_cntr * self.valve.pwm_period + self.valve.pwm_time_in_high) - (time.time() - self.cc_start_time)
-                    time.sleep(max(sleep_time, 0.0))  # sleep until the next step
 
-                # set valve inlet to low - if needed at all
-                if(self.valve.pwm_duty_cycle<=1):
+                # SET VALVE INLET TO LOW
+                elif(next_action == 2):
                     valve_error_msg = MUX_DRI_Set_Valve(self.valve.instridval,  # valve ID value
                                                         c_int32(self.valve.pwm_low_inlet),  # valve inlet
                                                         1  # valve rotation direction (1 for clockwise)
@@ -1311,39 +1450,34 @@ class OB1_manager:
                     if (valve_error_msg != 0):
                         print('Valve error: %d' % valve_error_msg)
                         exit(1)
-                    with self.lock:
-                        self.valve.inlet = self.valve.pwm_low_inlet
+                    self.valve.inlet = self.valve.pwm_low_inlet    # no lock as accessed only by thisn thread
 
-                # HANDLE THE USER INPUT, IF ANY
-                try:
-                    # get the user command and the argument
-                    user_cmd, user_cmd_arg0, user_cmd_arg1, user_cmd_arg2 = self.user_valve_cmd_queue.get_nowait()
 
-                    if (user_cmd == 1):  # 1 for changing the desired PWM conc.
-                        # update controls - will come into effect at the next duty cycle
-                        with self.lock:
-                            self.valve.input_conc = user_cmd_arg0
-                            self.valve.pwm_update_controls()
-                        # set the valve to desired input
-                        valve_error_msg = MUX_DRI_Set_Valve(self.valve.instridval,  # valve ID value
-                                                            c_int32(self.valve.inlet),  # valve inlet
-                                                            0  # valve rotation direction (zero for shortest)
-                                                            )
-                        if (valve_error_msg != 0):
-                            print('Valve error: %d' % valve_error_msg)
-                            exit(1)
-                        # report back to the user
-                        self.print_queue.put('Input conc. changed')
-
+                # DETERMINE WHICH ACTION TO TAKE NEXT
+                # if PWM means just permanently staying in high or low state, just wait until the next check
+                if (self.valve.pwm_duty_cycle <= 0 or self.valve.pwm_duty_cycle >= 1):
+                    next_action = 0
+                    time_to_check = max(valve_check_cntr * self.valve.dt_check - (time.time() - self.cc_start_time), 0.0)
+                    time.sleep(time_to_check)
+                # otherwise, determine time until each action has to be made
+                else:
+                    time_since_curr_pwm_input_set = time.time() - curr_pwm_input_set_time
+                    time_to_switch_to_high = max(self.valve.pwm_period * pwm_period_cntr - time_since_curr_pwm_input_set, 0.0)
+                    if(self.valve.inlet == self.valve.pwm_high_inlet):
+                        time_to_switch_to_low = max(self.valve.pwm_period * pwm_period_cntr - self.valve.pwm_time_in_low - time_since_curr_pwm_input_set,0.0)
                     else:
-                        self.print_queue.put('ERROR: the valve is in PWM mode')
-                except:
-                    pass
-
-                # sleep until the next duty cycle starts
-                period_cntr += 1  # update the check counter for the next step
-                sleep_time = period_cntr * self.valve.pwm_period - (time.time() - self.cc_start_time)  # find sleep time until the next step
-                time.sleep(max(sleep_time, 0.0))  # sleep until the next step
+                        time_to_switch_to_low = max(self.valve.pwm_period * (pwm_period_cntr+1) - self.valve.pwm_time_in_low - time_since_curr_pwm_input_set,0.0)
+                    time_to_check = max(valve_check_cntr * self.valve.dt_check - (time.time() - self.cc_start_time), 0.0)
+                    # schedule the soonest action (valve switchings prioritised over checks)
+                    if((time_to_switch_to_high < time_to_switch_to_low) and (time_to_switch_to_high <= time_to_check)):
+                        next_action = 1
+                        time.sleep(time_to_switch_to_high)
+                    elif(time_to_switch_to_low <= time_to_check):
+                        next_action = 2
+                        time.sleep(time_to_switch_to_low)
+                    else:
+                        next_action = 0
+                        time.sleep(time_to_check)
             
         return
 
@@ -1362,6 +1496,10 @@ class OB1_manager:
                                       0,  # which pressure is being set
                                       byref(self.Calib), 1000  # calibration (do not touch)
                                       )
+
+        # destroy communications with the OB-1
+        ob1_error_msg = OB1_Destructor(self.OB1.value    # which OB-1 is being used
+                                       )
 
         # if valve in use, destroy communications
         if(self.valve.in_use):
@@ -1434,7 +1572,7 @@ class OB1_manager:
         plt.ion()  # Turn on interactive mode
         fig_live, axs_live = plt.subplots(nrows=3, ncols=3,
                                           width_ratios=[2, 1, 1], height_ratios=[1, 1, 1],
-                                          figsize=(8 , 6))
+                                          figsize=(10 , 7.5))
 
         # adjust the layout
         fig_live.tight_layout(pad=2.0)
@@ -1553,6 +1691,9 @@ class OB1_manager:
         # plot the inlets
         valve_input_conc_line_live, = axs_live[2, 2].plot([], [], label='Input conc.',
                        linestyle='-', color='black')
+
+        # bottom left subplot not in use
+        axs_live[2, 0].axis('off')
 
 
         # define the plot updater function
@@ -1780,6 +1921,9 @@ class OB1_manager:
             axs[2, 2].plot(data_time[2], data_valve_input_conc, label='Input conc.',
                            linestyle='-', color='black')
 
+        # bottom left subplot not in use
+        axs[2, 0].axis('off')
+
         # adjust the layout
         fig.tight_layout(pad=1.0)
         # save figure
@@ -1806,30 +1950,34 @@ class OB1_manager:
 
     # plot the logged data from a file
     def plot_log(self,
-                 logfilename='logs/OB1_PID_log.csv',
-                 plotfilename='logs/OB1_PID_log.png',
+                 OB1_logfilename='logs/OB1_PID_log.csv',
+                 valve_logfilename='logs/valve_log.csv',
+                 plotfilename='logs/log.png',
                  # show safeguards or not?
                  show_safeguards=False,
                  ):
-        # read the log file
-        log_df = pd.read_csv(logfilename, na_values='N/A')   # get the dataframe from csv
+        # read the OB-1 log file
+        OB1_log_df = pd.read_csv(OB1_logfilename, na_values='N/A')   # get the dataframe from csv
+        # read the valve log file
+        valve_log_df = pd.read_csv(valve_logfilename, na_values='N/A')
+
         # get the data for time, pressure, flow
-        log_time = [log_df['Time (s)'].to_numpy(), log_df['Time (s)'].to_numpy(), log_df['Time (s)'].to_numpy()]
-        log_p = [log_df['CH 1 Pressure (mbar)'].to_numpy(), log_df['CH 2 Pressure (mbar)'].to_numpy()]
-        log_flow = [log_df['CH 1 Flow (ul/min)'].to_numpy(), log_df['CH 2 Flow (ul/min)'].to_numpy()]
+        log_time = [OB1_log_df['Time (s)'].to_numpy(), OB1_log_df['Time (s)'].to_numpy(), valve_log_df['Time (s)'].to_numpy()]
+        log_p = [OB1_log_df['CH 1 Pressure (mbar)'].to_numpy(), OB1_log_df['CH 2 Pressure (mbar)'].to_numpy()]
+        log_flow = [OB1_log_df['CH 1 Flow (ul/min)'].to_numpy(), OB1_log_df['CH 2 Flow (ul/min)'].to_numpy()]
         # get the data for medium left in the source
-        log_medleft = [log_df['CH 1 Medium left (ml)'].to_numpy(), log_df['CH 2 Medium left (ml)'].to_numpy()]
+        log_medleft = [OB1_log_df['CH 1 Medium left (ml)'].to_numpy(), OB1_log_df['CH 2 Medium left (ml)'].to_numpy()]
         # get the data for controller mode, reference flow and constant pressure setpoint
-        log_mode = [log_df['CH 1 Mode'].to_numpy(), log_df['CH 2 Mode'].to_numpy()]
-        log_ref_flow = [log_df['CH 1 Reference flow (ul/min)'].to_numpy(), log_df['CH 2 Reference flow (ul/min)'].to_numpy()]
-        log_const_press = [log_df['CH 1 Constant pressure (mbar)'].to_numpy(), log_df['CH 2 Reference flow (ul/min)'].to_numpy()]
+        log_mode = [OB1_log_df['CH 1 Mode'].to_numpy(), OB1_log_df['CH 2 Mode'].to_numpy()]
+        log_ref_flow = [OB1_log_df['CH 1 Reference flow (ul/min)'].to_numpy(), OB1_log_df['CH 2 Reference flow (ul/min)'].to_numpy()]
+        log_const_press = [OB1_log_df['CH 1 Constant pressure (mbar)'].to_numpy(), OB1_log_df['CH 2 Reference flow (ul/min)'].to_numpy()]
         # get the data for the gains
-        log_gains={'P': [log_df['CH 1 P gain'].to_numpy(), log_df['CH 2 P gain'].to_numpy()],
-                   'I': [log_df['CH 1 I gain'].to_numpy(), log_df['CH 2 I gain'].to_numpy()],
-                   'D': [log_df['CH 1 D gain'].to_numpy(), log_df['CH 2 D gain'].to_numpy()]}
+        log_gains={'P': [OB1_log_df['CH 1 P gain'].to_numpy(), OB1_log_df['CH 2 P gain'].to_numpy()],
+                   'I': [OB1_log_df['CH 1 I gain'].to_numpy(), OB1_log_df['CH 2 I gain'].to_numpy()],
+                   'D': [OB1_log_df['CH 1 D gain'].to_numpy(), OB1_log_df['CH 2 D gain'].to_numpy()]}
         # get the data for the valve
-        log_valve_inlets=log_df['Valve inlet']
-        log_valve_input_concs=log_df['Valve input conc.']
+        log_valve_inlets=valve_log_df['Valve inlet']
+        log_valve_input_concs=valve_log_df['Valve input conc.']
 
         # plot the data
         self.plot_cc_data(data_time=log_time, data_p=log_p, data_flow=log_flow,
@@ -1881,7 +2029,16 @@ class valve_manager:
         # instrument ID (assigned by the Elveflow SDK)
         self.instrid = c_int32()
         self.instridval = 0
+        
+        # valve-computer interaction parameters (initialised with zeros, then updated according to the settings)
+        self.dt_check = 0.0
+        self.dt_log = 0.0
+        self.log_every_points = 0
+        self.short_term_memo_size = 0
 
+        # valve data log file path (initialised with an empty string, then updated according to the user input)
+        self.logfilepath =''
+        
         # valve mode set inlets ('set') or PWM ('pwm')
         self.mode = 'set'
         
@@ -1938,10 +2095,6 @@ class valve_manager:
         # find the times spent with high and low inlets
         self.pwm_time_in_high = self.pwm_period*self.pwm_duty_cycle
         self.pwm_time_in_low = self.pwm_period - self.pwm_time_in_high
-        
-        # set the inlet to high
-        self.inlet = self.pwm_high_inlet
-        print(self.inlet)
         return
 
 
@@ -1952,18 +2105,19 @@ def main():
 
     # append the experiment's starting time to the log file name
     date_time_string = (datetime.datetime.now()).strftime("_%d%m_%H%M")
-    logfilename = r'logs/OB1_mchan_log' + date_time_string + '.csv'
+    OB1_logfilename = r'logs/log_' + date_time_string + '_OB1.csv'
+    valve_logfilename = r'logs/log_' + date_time_string + '_valve.csv'
 
     # begin cruise control
-    Kenobi.cruise_control(logfilename)
+    Kenobi.cruise_control(OB1_logfilename, valve_logfilename)
 
     # plot the short-term memory at the end
-    Kenobi.plot_stmemo(plotfilename='logs/OB1_mchan_final_stmemo' + date_time_string + '.png')
+    Kenobi.plot_stmemo(plotfilename='logs/final_stmemo' + date_time_string + '.png')
 
     # plot the logged data
     Kenobi.plot_log(show_safeguards=False,
-                    logfilename=logfilename,
-                    plotfilename='logs/OB1_mchan_log' + date_time_string + '.png')
+                    OB1_logfilename=OB1_logfilename, valve_logfilename=valve_logfilename,
+                    plotfilename='logs/log_' + date_time_string + '.png')
 
     return
 

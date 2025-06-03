@@ -19,7 +19,7 @@ class emulated_OB1:
         self.Device_Name = 'emulated_OB1'.encode('ascii')
 
         # OB-1 reference
-        self.OB1_ID = None
+        self.OB1_ID = 0
 
         # channel pressures
         self.ch_pressures=[-1, -1]
@@ -160,7 +160,7 @@ def OB1_Get_Press(
         # calibration array length (do not touch!)
         calib_array_length = 1000
 ):
-    # set readings
+    # get readings
     pressure_ptr = cast(pressure, POINTER(c_double))
     pressure_ptr.contents.value = OB1_em.ch_pressures[channel_1_to_4-1]
 
@@ -351,11 +351,11 @@ def Elveflow_Calibration_Save(
 class emulated_valve:
     # initialise the object with 'None's and '-1's in the fields
     def __init__(self):
-        # OB-1 name string
+        # valve name string
         self.Device_Name = 'emulated_valve'.encode('ascii')
 
-        # OB-1 reference
-        self.valve_ID = None
+        # valve reference
+        self.MUX_DRI_ID = None
 
         # which inlet the valve is currently set to
         self.inlet = -1
@@ -367,19 +367,125 @@ class emulated_valve:
         return self.inlet
 
     # set the valve inlet
-    def set_resistances(self, inlet):
+    def set_inlet(self, inlet):
         self.inlet = inlet
         return
 
 
 # INITIALISING THE VALVE EMULATOR -------------------------------------------------------------------------------
-emulator_R_um = 100 # resistor radius [um]
-emulator_L_cm = 10  # resistor length [cm]
-emulator_res = tubing_res_calc(emulator_R_um, emulator_L_cm)
-
-OB1_em = emulated_OB1()
-OB1_em.set_resistances([emulator_res, emulator_res])
+valve_em = emulated_valve()
 
 # DEFINITIONS OF SDK FUNCTION ANALOGUES FOR THE MUX DISTRIBUTOR VALVE --------------------------------------------------
 # initiate the valve device
-def MUX_DRI_Initialization():
+def MUX_DRI_Initialization(
+        # valve communication port of the PC (char array pointer)
+        Visa_COM,
+        # reference assigned to the valve
+        MUX_DRI_ID_out=byref(c_int32())
+):
+    # in the emulator, just
+    valve_em.MUX_DRI_ID = MUX_DRI_ID_out
+
+    # define error message
+    # TBD: make it consistent with the SDK manual. For now, always 0 (all OK)
+    valve_error_msg = 0
+    return valve_error_msg
+
+# destroy communications with the valve
+# in the emulator, do nothing
+def MUX_DRI_Destructor(
+        # reference to which valve is being used
+        MUX_DRI_ID_in
+):
+    # define error message
+    # TBD: make it consistent with the SDK manual. For now, always 0 (all OK)
+    valve_error_msg = 0
+
+    return valve_error_msg
+
+
+# send an action command to the valve: 0 to home the valve, 1 to get the valve's serial number
+def MUX_DRI_Send_Command(
+        # reference to which valve is being used
+        MUX_DRI_ID_in,
+        # action command to the valve
+        action,
+        # answer array pointer - for getting the valve's serial number
+        answer,
+        # answer array length - for getting the valve's serial number
+        length
+):
+    # homing the valve if getting command 0 - set to inlet 1 in the emulator
+    if(action == 0):
+        # set to inlet 0 and get the corresponding error message
+        valve_error_msg = MUX_DRI_Set_Valve(MUX_DRI_ID_in,  # valve ID value
+                                            c_int32(1),  # valve inlet
+                                            0  # valve rotation direction (zero for shortest)
+                                            )
+    # getting the valve serial number if getting command 1 - just zeros in the emulator
+    elif(action == 1):
+        answer_ptr = cast(answer, POINTER(c_double * length))
+        answer_array = answer_ptr.contents
+        for i in range(0, length):
+            answer_array[i] = '0'
+        # define error message
+        # TBD: make it consistent with the SDK manual. For now, always 0 (all OK)
+        valve_error_msg = 0
+    else:
+        # define error message
+        # TBD: make it consistent with the SDK manual. For now, always 0 (all OK)
+        valve_error_msg = 0
+
+    return valve_error_msg
+
+
+# get the valve inlet data
+def MUX_DRI_Get_Valve(
+        # reference to which valve is being used
+        MUX_DRI_ID_in,
+        # where to write the data
+        selected_Valve
+):
+    # get readings
+    selected_Valve_ptr = cast(selected_Valve, POINTER(c_int32))
+    selected_Valve_ptr.contents.value = valve_em.get_inlet()
+
+    # define error message
+    # TBD: make it consistent with the SDK manual. For now, always 0 (all OK)
+    valve_error_msg = 0
+
+    # return error message
+    return valve_error_msg
+
+
+# set the valve inlet
+def MUX_DRI_Set_Valve(
+        # reference to which valve is being used
+        MUX_DRI_ID_in,
+        # which inlet to set
+        selected_Valve,
+        # valve rotation directions: 0 for the shortest, 1 for clockwise, 2 for anticlockwise - irrelevant in the emulator
+        Z_MUX_DRI_Rotation
+):
+    # set valve inlet - handling the cases when the selection is a Python int/float or a int32_t
+    if (isinstance(selected_Valve, (int, float))):
+        valve_em.set_inlet(selected_Valve)
+    else:
+        valve_em.set_inlet(selected_Valve.value)
+
+    # define error message
+    # TBD: make it consistent with the SDK manual. For now, always 0 (all OK)
+    valve_error_msg = 0
+
+    return valve_error_msg
+
+
+# CONSTANTS SIGNIFYING VALVE COMMANDS ----------------------------------------------------------------------------------
+# valve action commands: 0 to home the valve, 1 to get the valve's serial number
+Z_MUX_DRI_Action_Home = 0
+Z_MUX_DRI_Action_SerialNumber = 1
+
+# valve rotation directions: 0 for the shortest, 1 for clockwise, 2 for anticlockwise
+Z_MUX_DRI_Rotation_Shortest = 0
+Z_MUX_DRI_Rotation_Clockwise = 1
+Z_MUX_DRI_Rotation_CounterClockwise = 2
