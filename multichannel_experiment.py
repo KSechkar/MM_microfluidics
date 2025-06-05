@@ -172,7 +172,6 @@ class OB1_manager:
             self.short_term_memo_size = int(short_term_memo_time / self.dt_check) + 1
             # initialise the variables for the starting time of cruise control and starting medium volume in the source
             self.cc_start_time = -1  # for clarity, initialise with an impossible, negative value
-            self.medstart = -1  # for clarity, initialise with an impossible, negative value
         else:
             print('(Loaded from file)')
 
@@ -455,7 +454,6 @@ class OB1_manager:
                         if (curr_line >= lines_total):
                             break
 
-                    # record the safeguard specs as numpy arrays
                     # record the safeguard specs as numpy arrays
                     ch.p_bounds = np.array(p_bounds)
                     ch.p_lnub = np.array(p_lnub)
@@ -1506,6 +1504,32 @@ class channel_manager:
         ref_colours = ['steelblue', 'firebrick']
         self.plot_colour = plot_colours[id - 1]
         self.ref_colour = ref_colours[id - 1]
+
+        # variables initialised with -1 by default, lists initialised as empty
+
+        # controller parameters and variables
+        self.ref_flow = -1.0
+        self.ref_flow = -1.0
+        self.p_gain = -1.0
+        self.i_gain = -1.0
+        self.d_gain = -1.0
+        self.min_flerrint = -1.0
+        self.max_flerrint = -1.0
+        self.min_press_ctrl = -1.0
+        self.max_p_ctrl = -1.0
+        self.flerrint = -1.0
+
+        # channel safeguards
+        self.p_bounds = np.array([])
+        self.p_lnub = np.array([])
+        self.flow_bounds = np.array([])
+        self.flow_lnub = np.array([])
+        self.safeguard_check_steps = np.array([])
+        self.num_safeguards = 0
+
+        # medium in the source at the start of the run and currently left
+        self.medstart = -1.0
+        self.medleft = -1.0
 
         # short-term memory for control and logging#
         # initialise short-term memory for the pressure, the flow and the measurement times

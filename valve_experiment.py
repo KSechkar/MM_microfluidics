@@ -170,9 +170,8 @@ class OB1_manager:
             # convert from logging and remembering times to number of data points
             self.log_every_points = int(self.dt_log / self.dt_check)
             self.short_term_memo_size = int(short_term_memo_time / self.dt_check) + 1
-            # initialise the variables for the starting time of cruise control and starting medium volume in the source
+            # initialise the variables for the starting time of cruise control
             self.cc_start_time = -1  # for clarity, initialise with an impossible, negative value
-            self.medstart = -1  # for clarity, initialise with an impossible, negative value
         else:
             print('(Loaded from file)')
 
@@ -2003,7 +2002,33 @@ class channel_manager:
         self.plot_colour=plot_colours[id-1]
         self.ref_colour=ref_colours[id-1]
 
-        # short-term memory for control and logging#
+        # variables initialised with -1 by default, lists initialised as empty
+
+        # controller parameters and variables
+        self.ref_flow = -1.0
+        self.ref_flow = -1.0
+        self.p_gain = -1.0
+        self.i_gain = -1.0
+        self.d_gain = -1.0
+        self.min_flerrint = -1.0
+        self.max_flerrint = -1.0
+        self.min_press_ctrl = -1.0
+        self.max_p_ctrl = -1.0
+        self.flerrint = -1.0
+
+        # channel safeguards
+        self.p_bounds = np.array([])
+        self.p_lnub = np.array([])
+        self.flow_bounds = np.array([])
+        self.flow_lnub = np.array([])
+        self.safeguard_check_steps = np.array([])
+        self.num_safeguards = 0
+
+        # medium in the source at the start of the run and currently left
+        self.medstart = -1.0
+        self.medleft = -1.0
+
+        # short-term memory for control and logging
         # initialise short-term memory for the pressure, the flow and the measurement times
         self.stmemo_p = []
         self.stmemo_flow = []
