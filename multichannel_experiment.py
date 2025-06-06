@@ -437,8 +437,8 @@ class OB1_manager:
                         # get for how long the condition must be true to trigger the cutoff
                         safeguard_time = float(cutoff_condition[curr_cutoff_condition_entry])
                         safeguard_check_steps.append(
-                            int(safeguard_time / ch.dt_check) + 1)  # convert to number of data points in short-term memory
-                        if (safeguard_check_steps[-1] > ch.short_term_memo_size):
+                            int(safeguard_time / self.dt_check) + 1)  # convert to number of data points in short-term memory
+                        if (safeguard_check_steps[-1] >self.short_term_memo_size):
                             print('Error: the specified time exceeds short-term memory')
                             exit(1)
                         elif (safeguard_check_steps[-1] <= 0):
@@ -1526,6 +1526,7 @@ class channel_manager:
         self.flow_lnub = np.array([])
         self.safeguard_check_steps = np.array([])
         self.num_safeguards = 0
+        self.safeguard_conds = []
 
         # medium in the source at the start of the run and currently left
         self.medstart = -1.0

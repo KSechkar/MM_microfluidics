@@ -165,11 +165,11 @@ class OB1_manager:
         if (interactions_still_todo):
             self.dt_check = float(input('dt_check: how often you want to check on the OB-1 (seconds) : '))
             self.dt_log = float(input('dt_log: how often you want to log OB-1 data (seconds) : '))
-            short_term_memo_time = float(
-                input('short_term_memo_time: how long you want to keep ALL most recent OB-1 data in memory (seconds) : '))
+            short_term_memo_dur = float(
+                input('short_term_memo_dur: how long you want to keep ALL most recent OB-1 data in memory (seconds) : '))
             # convert from logging and remembering times to number of data points
             self.log_every_points = int(self.dt_log / self.dt_check)
-            self.short_term_memo_size = int(short_term_memo_time / self.dt_check) + 1
+            self.short_term_memo_size = int(short_term_memo_dur / self.dt_check) + 1
             # initialise the variables for the starting time of cruise control
             self.cc_start_time = -1  # for clarity, initialise with an impossible, negative value
         else:
@@ -234,11 +234,10 @@ class OB1_manager:
             if(self.valve.still_todo['INTERACTIONS']):
                 self.valve.dt_check = float(input('valve_dt_check: how often you want the computer to check on the VALVE (seconds) : '))
                 self.valve.dt_log = float(input('dt_log: how often you want to log VALVE data (seconds) : '))
-                valve_short_term_memo_time = float(
-                    input('valve_short_term_memo_time: how long you want to keep ALL most recent VALVE data in memory (seconds) : '))
+                self.valve.short_term_memo_dur = float(
+                    input('valve_short_term_memo_dur: how long you want to keep ALL most recent VALVE data in memory (seconds) : '))
                 # convert from logging and remembering times to number of data points
                 self.valve.log_every_points = int(self.valve.dt_log / self.valve.dt_check)
-                self.valve.short_term_memo_size = int(valve_short_term_memo_time / self.valve.dt_check) + 1
 
             # VALVE OPERATIONS
             if(self.valve.still_todo['OPERATIONS']):
@@ -428,11 +427,11 @@ class OB1_manager:
                     self.dt_log = float(lines[curr_line].split()[2])
                     curr_line = next_meaningful_line(curr_line)
                     # get the short-term memory time
-                    short_term_memo_time = float(lines[curr_line].split()[2])
+                    short_term_memo_dur = float(lines[curr_line].split()[2])
                     curr_line = next_meaningful_line(curr_line)
                     # convert from logging and remembering times to number of data points
                     self.log_every_points = int(self.dt_log / self.dt_check)
-                    self.short_term_memo_size = int(short_term_memo_time / self.dt_check)+1
+                    self.short_term_memo_size = int(short_term_memo_dur / self.dt_check)+1
 
                     # skip the 'END OB1-COMPUTER INTERACTIONS' marker line
                     curr_line = next_meaningful_line(curr_line)
@@ -510,8 +509,8 @@ class OB1_manager:
 
                         # get for how long the condition must be true to trigger the cutoff
                         safeguard_time = float(cutoff_condition[curr_cutoff_condition_entry])
-                        safeguard_check_steps.append(int(safeguard_time / ch.dt_check)+1)  # convert to number of data points in short-term memory
-                        if (safeguard_check_steps[-1] > ch.short_term_memo_size):
+                        safeguard_check_steps.append(int(safeguard_time / self.dt_check)+1)  # convert to number of data points in short-term memory
+                        if (safeguard_check_steps[-1] > self.short_term_memo_size):
                             print('Error: the specified time exceeds short-term memory')
                             exit(1)
                         elif (safeguard_check_steps[-1] <= 0):
@@ -562,11 +561,10 @@ class OB1_manager:
                     self.valve.dt_log = float(lines[curr_line].split()[2])
                     curr_line = next_meaningful_line(curr_line)
                     # get the short-term memory time
-                    valve_short_term_memo_time = float(lines[curr_line].split()[2])
+                    self.valve.short_term_memo_dur = float(lines[curr_line].split()[2])
                     curr_line = next_meaningful_line(curr_line)
                     # convert from logging and remembering times to number of data points
                     self.valve.log_every_points = int(self.valve.dt_log / self.valve.dt_check)
-                    self.valve.short_term_memo_size = int(valve_short_term_memo_time) / self.valve.dt_check + 1
 
                     # skip the 'END VALVE-COMPUTER INTERACTIONS' marker line
                     curr_line = next_meaningful_line(curr_line)
@@ -588,6 +586,8 @@ class OB1_manager:
                     if(self.valve.mode=='set'):
                         # get the starting inlet
                         self.valve.inlet = int(lines[curr_line].split()[2])
+                        self.valve.input_conc = self.valve.inlet_concs[self.valve.inlet-1]# also get the corresponding starting input concentration
+                        curr_line = next_meaningful_line(curr_line)
                     elif(self.valve.mode=='pwm'):
                         # get the PWM period
                         self.valve.pwm_period = float(lines[curr_line].split()[2])
@@ -868,7 +868,7 @@ class OB1_manager:
             file.write('OB1-COMPUTER INTERACTIONS\n')
             file.write('dt_check = ' + str(self.dt_check) + ' s\n')
             file.write('dt_log = ' + str(self.dt_log) + ' s\n')
-            file.write('short_term_memo_time = ' + str((self.short_term_memo_size - 1) * self.dt_check) + ' s\n')
+            file.write('short_term_memo_dur = ' + str((self.short_term_memo_size - 1) * self.dt_check) + ' s\n')
             file.write('END OB1-COMPUTER INTERACTIONS\n')
             file.write('\n')
 
@@ -1211,6 +1211,16 @@ class OB1_manager:
 
     # handle user input during cruise control
     def cruise_control_user(self):
+        # get the set of commands on offer for a given valve mode
+        cmds_on_offer = 'stop; set_ref_flow, set_const_press, set_gains'
+        if (not self.valve.in_use):
+            cmds_on_offer += '; change_medium'
+        elif (self.valve.mode == 'set'):
+            cmds_on_offer += '; set_valve_inlet'
+        elif (self.valve.mode == 'pwm'):
+            cmds_on_offer += '; set_input_conc'
+        cmds_on_offer += '; live_plot'
+
         while self.doing_cruise_control:
             # sleep for a while to let the OB-1 deal with the previous command
             if not(self.threads_just_started):
@@ -1224,8 +1234,6 @@ class OB1_manager:
                 pass
 
             # User input
-            cmds_on_offer = 'stop; set_ref_flow, set_const_press, set_gains; change_medium; set_valve_inlet, set_input_conc; live_plot'
-
             user_cmd = input('What would you like to do? \n('+cmds_on_offer+'): ')
             
             # OB-1 COMMANDS --------------------------------------------------------------------------------------
@@ -1276,10 +1284,10 @@ class OB1_manager:
                                                # args
                                                new_inlet, 0, 0))
             elif (user_cmd == 'set_input_conc'):
-                new_inlet = float(input("Specify the PWM input conc. : "))
+                new_input_conc = float(input("Specify the PWM input conc. : "))
                 self.user_valve_cmd_queue.put((1,  # command code: 1 for changing the PWM input conc.
                                                # args
-                                               new_inlet, 0, 0))
+                                               new_input_conc, 0, 0))
         return
 
     def cruise_control_valve(self):
@@ -1297,21 +1305,27 @@ class OB1_manager:
                     user_cmd, user_cmd_arg0, user_cmd_arg1, user_cmd_arg2 = self.user_valve_cmd_queue.get_nowait()
                     
                     if (user_cmd == 0):  # 0 for changing the valve inlet
-                        # update valve controls
-                        with self.lock:
-                            self.valve.inlet = int(user_cmd_arg0)
-                            self.valve.input_conc = self.valve.inlet_concs[self.valve.inlet-1]
-                        # set the valve to desired input
-                        valve_error_msg = MUX_DRI_Set_Valve(self.valve.instridval,  # valve ID value
-                                                            c_int32(self.valve.inlet),  # valve inlet
-                                                            0  # valve rotation direction (zero for shortest)
-                                                            )
-                        if (valve_error_msg != 0):
-                            print('Valve error: %d' % valve_error_msg)
-                            exit(1)
-                        # report back to the user
-                        self.print_queue.put('Inlet changed')
-                        break
+                        # print an error message for impossible inlets outside the 1-12 range
+                        if(user_cmd_arg0<1 or user_cmd_arg0>12):
+                            self.print_queue.put('ERROR: impossible valve inlet')
+                        # print an error message if the desired valve inlet not in use
+                        if(user_cmd_arg0>len(self.valve.inlet_concs)):
+                            self.print_queue.put('ERROR: valve inlet not in use')
+                        # otherwise, update valve controls
+                        else:
+                            with self.lock:
+                                self.valve.inlet = int(user_cmd_arg0)
+                                self.valve.input_conc = self.valve.inlet_concs[self.valve.inlet-1]
+                            # set the valve to desired input
+                            valve_error_msg = MUX_DRI_Set_Valve(self.valve.instridval,  # valve ID value
+                                                                c_int32(self.valve.inlet),  # valve inlet
+                                                                0  # valve rotation direction (zero for shortest)
+                                                                )
+                            if (valve_error_msg != 0):
+                                print('Valve error: %d' % valve_error_msg)
+                                exit(1)
+                            # report back to the user
+                            self.print_queue.put('Inlet changed')
                     else:
                         self.print_queue.put('ERROR: the valve is in set inlet mode')
                 except:
@@ -1326,19 +1340,19 @@ class OB1_manager:
                     self.valve.stmemo_inlet.append(self.valve.inlet)
                     self.valve.stmemo_input_conc.append(self.valve.input_conc)
                     # pop the oldest readings if short-term memory is full
-                    if (len(self.valve.stmemo_inlet) > self.valve.short_term_memo_size):
+                    if (self.valve.stmemo_time[-1]-self.valve.stmemo_time[0]>self.valve.short_term_memo_dur):
                         self.valve.stmemo_time.pop(0)
                         self.valve.stmemo_inlet.pop(0)
                         self.valve.stmemo_input_conc.pop(0)
 
-                    # LOG THE DATA IF IT'S TIME TO DO SO
-                    if (valve_check_cntr % self.valve.log_every_points == 0):
-                        with open(self.valve.logfilepath, 'a', newline='') as logfile:
-                            logwriter = csv.writer(logfile)
-                            with self.lock:
-                                row = [t_check_relative]  # time of the readings
-                                row = row + [self.valve.stmemo_inlet[-1], self.valve.stmemo_input_conc[-1]]
-                                logwriter.writerow(row, )
+                # LOG THE DATA IF IT'S TIME TO DO SO
+                if (valve_check_cntr % self.valve.log_every_points == 0):
+                    with open(self.valve.logfilepath, 'a', newline='') as logfile:
+                        logwriter = csv.writer(logfile)
+                        with self.lock:
+                            row = [t_check_relative]  # time of the readings
+                            row = row + [self.valve.stmemo_inlet[-1], self.valve.stmemo_input_conc[-1]]
+                            logwriter.writerow(row, )
 
                 # UPDATE THE PERIOD COUNTER AND WAIT FOR THE NEXT CHECK
                 valve_check_cntr += 1  # update the check counter for the next step
@@ -1376,6 +1390,8 @@ class OB1_manager:
                             # reset the PWM period counter and time at which the valve was set to enforce the given PWM input
                             pwm_period_cntr = 0
                             curr_pwm_input_set_time = time.time()
+                            # reset the valve check counter, since we're now enforcing a new PWM input conc.
+                            valve_check_cntr = 0
                             # out of due order, set the inlet valve to high if it ever should be high (and to low otherwise)
                             if (self.valve.pwm_duty_cycle > 0):
                                 next_action = 1
@@ -1390,16 +1406,17 @@ class OB1_manager:
                     # RECORD THE VALVE DATA IN SHORT-TERM MEMORY
                     # get the time of record
                     t_check_absolute = time.time()  # get the time of the check - NOT from the start of cruise control
-                    t_check_relative = t_check_absolute - self.cc_start_time  # convert to time from the start of cruise control
+                    t_check_rel_to_cc_start = t_check_absolute - self.cc_start_time  # convert to time from THE START OF CRUISE CONTROL
+                    t_check_rel_to_pwm_set = t_check_absolute - curr_pwm_input_set_time  # convert to time from THE MOMENT WE STARTED TRACKING THE GIVEN PWM INPUT CONC.
                     with self.lock:
-                        self.valve.stmemo_time.append(t_check_relative)
+                        self.valve.stmemo_time.append(t_check_rel_to_cc_start)
                         self.valve.stmemo_inlet.append(self.valve.inlet)
                         self.valve.stmemo_input_conc.append(self.valve.input_conc)
                         self.valve.stmemo_pwm_duty_cycle.append(self.valve.pwm_duty_cycle)
                         self.valve.stmemo_pwm_low_inlet.append(self.valve.pwm_low_inlet)
                         self.valve.stmemo_pwm_high_inlet.append(self.valve.pwm_high_inlet)
                         # pop the oldest readings if short-term memory is full
-                        if (len(self.valve.stmemo_inlet) > self.short_term_memo_size):
+                        if (self.valve.stmemo_time[-1]-self.valve.stmemo_time[0]>self.valve.short_term_memo_dur):
                             self.valve.stmemo_time.pop(0)
                             self.valve.stmemo_inlet.pop(0)
                             self.valve.stmemo_input_conc.pop(0)
@@ -1411,7 +1428,7 @@ class OB1_manager:
                         with open(self.valve.logfilepath, 'a', newline='') as logfile:
                             logwriter = csv.writer(logfile)
                             with self.lock:
-                                row = [t_check_relative]  # time of the readings
+                                row = [t_check_rel_to_cc_start]  # time of the readings
                                 row = row + [self.valve.stmemo_inlet[-1], self.valve.stmemo_input_conc[-1]]
                                 row = row + [
                                     self.valve.stmemo_pwm_duty_cycle[-1],
@@ -1460,14 +1477,15 @@ class OB1_manager:
                     time.sleep(time_to_check)
                 # otherwise, determine time until each action has to be made
                 else:
-                    time_since_curr_pwm_input_set = time.time() - curr_pwm_input_set_time
-                    time_to_switch_to_high = max(self.valve.pwm_period * pwm_period_cntr - time_since_curr_pwm_input_set, 0.0)
-                    if(self.valve.inlet == self.valve.pwm_high_inlet):
+                    time_since_curr_pwm_input_set = time.time() - curr_pwm_input_set_time   # get the time the valve has been enforcing a given input conc. by PWM
+                    time_to_switch_to_high = max(self.valve.pwm_period * pwm_period_cntr - time_since_curr_pwm_input_set, 0.0)  # get the time until the next switch to a high input
+                    if(self.valve.inlet == self.valve.pwm_high_inlet):  # if we have a high inlet now, the
                         time_to_switch_to_low = max(self.valve.pwm_period * pwm_period_cntr - self.valve.pwm_time_in_low - time_since_curr_pwm_input_set,0.0)
                     else:
                         time_to_switch_to_low = max(self.valve.pwm_period * (pwm_period_cntr+1) - self.valve.pwm_time_in_low - time_since_curr_pwm_input_set,0.0)
-                    time_to_check = max(valve_check_cntr * self.valve.dt_check - (time.time() - self.cc_start_time), 0.0)
-                    # schedule the soonest action (valve switchings prioritised over checks)
+                    time_to_check = max(valve_check_cntr * self.valve.dt_check - time_since_curr_pwm_input_set, 0.0)
+                    # print([time_to_check, time_to_switch_to_high, time_to_switch_to_low])
+                    # schedule the soonest action (valve inlet switching prioritised over computer checks)
                     if((time_to_switch_to_high < time_to_switch_to_low) and (time_to_switch_to_high <= time_to_check)):
                         next_action = 1
                         time.sleep(time_to_switch_to_high)
@@ -1569,9 +1587,9 @@ class OB1_manager:
     # plot the short-term memory during cruise control
     def live_stmemo_plot(self):
         plt.ion()  # Turn on interactive mode
-        fig_live, axs_live = plt.subplots(nrows=3, ncols=3,
-                                          width_ratios=[2, 1, 1], height_ratios=[1, 1, 1],
-                                          figsize=(10 , 7.5))
+        fig_live, axs_live = plt.subplots(nrows=2, ncols=3,
+                                          width_ratios=[2, 1, 1], height_ratios=[1, 1],
+                                          figsize=(10 , 5))
 
         # adjust the layout
         fig_live.tight_layout(pad=2.0)
@@ -1616,84 +1634,128 @@ class OB1_manager:
         # show legend
         axs_live[1,0].legend(loc='upper left')
 
-        # plot the PID gains for channel 1 in the third subfigure
-        # plot formatting
-        axs_live[0,1].grid()
-        # start live plot lines for the gains
-        ch1_p_gain_line_live, = axs_live[0,1].plot([], [], label='CH 1 P gain',
-                                        linestyle='-', color='darkviolet', alpha=0.5)
-        ch1_i_gain_line_live, = axs_live[0,1].plot([], [], label='CH 1 I gain',
-                                        linestyle='-', color='darkorange', alpha=0.5)
-        ch1_d_gain_line_live, = axs_live[0,1].plot([], [], label='CH 1 D gain',
-                                        linestyle='-', color='lightseagreen', alpha=0.5)
-        # show legend
-        if (self.channels[0].in_use):
+        # plot the PID gains for channel 1
+        if(self.channels[0].in_use):
+            # plot formatting
+            axs_live[0,1].grid()
+            # start live plot lines for the gains
+            ch1_p_gain_line_live, = axs_live[0,1].plot([], [], label='CH 1 P gain',
+                                            linestyle='-', color='darkviolet', alpha=0.5)
+            ch1_i_gain_line_live, = axs_live[0,1].plot([], [], label='CH 1 I gain',
+                                            linestyle='-', color='darkorange', alpha=0.5)
+            ch1_d_gain_line_live, = axs_live[0,1].plot([], [], label='CH 1 D gain',
+                                            linestyle='-', color='lightseagreen', alpha=0.5)
+            # show legend
             axs_live[0,1].legend(loc='upper left')
+        else:
+            axs_live[0,1].axis('off')
+            # just pass Nones as plot lines to be passing something
+            ch1_p_gain_line_live = None
+            ch1_i_gain_line_live = None
+            ch1_d_gain_line_live = None
 
-        # plot the estimated medium left in the source for channel 1 in the fourth subfigure
-        # plot formatting
-        axs_live[1, 1].grid()
-        axs_live[1, 1].set_ylim(bottom=0, top=55)
-        # plot
-        axs_live[1, 1].set_xlabel('Time since cruise control start (s)')
-        axs_live[1, 1].set_ylabel('Medium left in source (ml)')
-        # start live plot line for pressure
-        ch1_medleft_line_live, = axs_live[1, 1].plot([], [], label='CH 1 Medium left',
-                                           linestyle='-', color='gold')
-        # show legend
-        if (self.channels[0].in_use):
-            axs_live[1, 1].legend(loc='upper left')
-
-        # plot the PID gains for channel 2 in the third subfigure
-        # plot formatting
-        axs_live[0, 2].grid()
-        # start live plot lines for the gains
-        ch2_p_gain_line_live, = axs_live[0, 2].plot([], [], label='CH 2 P gain',
-                                                linestyle='-', color='darkviolet', alpha=0.5)
-        ch2_i_gain_line_live, = axs_live[0, 2].plot([], [], label='CH 2 I gain',
-                                                linestyle='-', color='darkorange', alpha=0.5)
-        ch2_d_gain_line_live, = axs_live[0, 2].plot([], [], label='CH 2 D gain',
-                                                linestyle='-', color='lightseagreen', alpha=0.5)
-        # show legend
+        # plot the PID gains for channel 2
         if(self.channels[1].in_use):
+            # plot formatting
+            axs_live[0, 2].grid()
+            # start live plot lines for the gains
+            ch2_p_gain_line_live, = axs_live[0, 2].plot([], [], label='CH 2 P gain',
+                                                        linestyle='-', color='darkviolet', alpha=0.5)
+            ch2_i_gain_line_live, = axs_live[0, 2].plot([], [], label='CH 2 I gain',
+                                                        linestyle='-', color='darkorange', alpha=0.5)
+            ch2_d_gain_line_live, = axs_live[0, 2].plot([], [], label='CH 2 D gain',
+                                                        linestyle='-', color='lightseagreen', alpha=0.5)
+            # show legend
             axs_live[0, 2].legend(loc='upper left')
+        else:
+            axs_live[0, 2].axis('off')
 
-        # plot the estimated medium left in the source for channel 2 in the fourth subfigure
-        # plot formatting
-        axs_live[1, 2].grid()
-        axs_live[1, 2].set_ylim(bottom=0, top=55)
-        # plot
-        axs_live[1, 2].set_xlabel('Time since cruise control start (s)')
-        axs_live[1, 2].set_ylabel('Medium left in source (ml)')
-        # start live plot line for pressure
-        ch2_medleft_line_live, = axs_live[1, 2].plot([], [], label='CH 2 Medium left',
-                                                 linestyle='-', color='gold')
-        # show legend
-        if (self.channels[1].in_use):
-            axs_live[1, 2].legend(loc='upper left')
 
-        # plot the valve inlet
-        axs_live[2, 1].grid()
-        axs_live[2, 1].set_ylim(bottom=1, top=12)
-        # plot labels
-        axs_live[2, 1].set_xlabel('Time since cruise control start (s)')
-        axs_live[2, 1].set_ylabel('Valve inlet')
-        # plot the inlets
-        valve_inlet_line_live, = axs_live[2, 1].plot([], [], label='Valve inlet',
-                       linestyle='-', color='black')
+        # IF VALVE NOT IN USE, plot estimated medium left in each channels' source
+        if(not self.valve.in_use):
+            # plot the estimated medium left in the source for channel 1
+            if(self.channels[0].in_use):
+                # plot formatting
+                axs_live[1, 1].grid()
+                axs_live[1, 1].set_ylim(bottom=0, top=55)
+                # plot
+                axs_live[1, 1].set_xlabel('Time since cruise control start (s)')
+                axs_live[1, 1].set_ylabel('Medium left in source (ml)')
+                # start live plot line for pressure
+                ch1_medleft_line_live, = axs_live[1, 1].plot([], [], label='CH 1 Medium left',
+                                                             linestyle='-', color='gold')
+                # show legend
+                axs_live[1, 1].legend(loc='upper left')
+            else:
+                axs_live[1, 1].axis('off')
+                # just pass Nones as plot lines to be passing something
+                c1_medleft_line_live = None
 
-        # plot the valve input conc.
-        axs_live[2, 2].grid()
-        # plot labels
-        axs_live[2, 2].set_xlabel('Time since cruise control start (s)')
-        axs_live[2, 2].set_ylabel('Input conc.')
-        # plot the inlets
-        valve_input_conc_line_live, = axs_live[2, 2].plot([], [], label='Input conc.',
-                       linestyle='-', color='black')
+            # plot the estimated medium left in the source for channel 2
+            if (self.channels[1].in_use):
+                # plot formatting
+                axs_live[1, 2].grid()
+                axs_live[1, 2].set_ylim(bottom=0, top=55)
+                # plot
+                axs_live[1, 2].set_xlabel('Time since cruise control start (s)')
+                axs_live[1, 2].set_ylabel('Medium left in source (ml)')
+                # start live plot line for pressure
+                ch2_medleft_line_live, = axs_live[1, 2].plot([], [], label='CH 2 Medium left',
+                                                         linestyle='-', color='gold')
+                # show legend
+                axs_live[1, 2].legend(loc='upper left')
+            else:
+                axs_live[1, 2].axis('off')
+                # just pass Nones as plot lines to be passing something
+                ch2_medleft_line_live = None
 
-        # bottom left subplot not in use
-        axs_live[2, 0].axis('off')
+        # IF VALVE IN USE, plot valve states
+        else:
+            # plot the valve inlet
+            axs_live[1, 1].grid()
+            axs_live[1, 1].set_ylim(bottom=0, top=13)
+            # plot labels
+            axs_live[1, 1].set_xlabel('Time since cruise control start (s)')
+            axs_live[1, 1].set_ylabel('Valve inlet')
+            # ticks corresponding to inlets
+            axs_live[1, 1].set_yticks(np.arange(1,12.5,1,np.dtype(int)))
+            # mark the possible inlet range
+            axs_live[1, 1].axhspan(ymin=0, ymax=1, color='grey', alpha=0.5)
+            axs_live[1, 1].axhspan(ymin=12, ymax=13, color='grey', alpha=0.5)
+            # plot the inlets
+            valve_inlet_line_live, = axs_live[1, 1].plot([], [], label='Valve inlet',
+                           linestyle='-', color='black')
 
+            # plot the valve input conc.
+            axs_live[1, 2].grid()
+            input_conc_ylims=(self.valve.inlet_concs[0]*0.75, self.valve.inlet_concs[-1]*1.25)
+            axs_live[1, 2].set_ylim(input_conc_ylims[0],input_conc_ylims[1])
+            # plot labels
+            axs_live[1, 2].set_xlabel('Time since cruise control start (s)')
+            axs_live[1, 2].set_ylabel('Set input conc.')
+            # mark the possible inlet range
+            axs_live[1, 2].axhspan(ymin=input_conc_ylims[0], ymax=self.valve.inlet_concs[0], color='grey', alpha=0.5)
+            axs_live[1, 2].axhspan(ymin=self.valve.inlet_concs[-1], ymax=input_conc_ylims[-1], color='grey', alpha=0.5)
+            # plot the set input concentration
+            valve_input_conc_line_live, = axs_live[1, 2].plot([], [], label='Set input conc.',
+                           linestyle='-', color='black')
+
+        # IF SOME PLOTS NOT PRESENT, just pass Nones as plot lines to be passing something
+        if (not self.channels[0].in_use): # channel 1 PID gains
+            ch1_p_gain_line_live = None
+            ch1_i_gain_line_live = None
+            ch1_d_gain_line_live = None
+        if(not self.channels[1].in_use): # channel 2 PID gains
+            ch2_p_gain_line_live = None
+            ch2_i_gain_line_live = None
+            ch2_d_gain_line_live = None
+        if (self.valve.in_use or (not self.channels[0].in_use)):  # channel 1 medium left
+            ch1_medleft_line_live = None
+        if (self.valve.in_use or (not self.channels[1].in_use)):  # channel medium left
+            ch2_medleft_line_live = None
+        if(not self.valve.in_use): # valve plot lines
+            valve_inlet_line_live = None
+            valve_input_conc_line_live = None
 
         # define the plot updater function
         def live_plot_updater(frames):
@@ -1726,12 +1788,6 @@ class OB1_manager:
                     axs_live[0,1].relim()
                     axs_live[0,1].autoscale_view()
 
-                # update the medium left plot for channel 1
-                if(self.channels[0].in_use):
-                    ch1_medleft_line_live.set_data(self.channels[0].stmemo_time, self.channels[0].stmemo_medleft)
-                    axs_live[1, 1].relim()
-                    axs_live[1, 1].autoscale_view()
-
                 # update the PID gains plot for channel 2
                 if (self.channels[1].in_use):
                     ch2_p_gain_line_live.set_data(self.channels[1].stmemo_time, self.channels[1].stmemo_p_gain)
@@ -1740,23 +1796,33 @@ class OB1_manager:
                     axs_live[0, 2].relim()
                     axs_live[0, 2].autoscale_view()
 
-                # update the medium left plot for channel 2
-                if (self.channels[1].in_use):
-                    ch2_medleft_line_live.set_data(self.channels[1].stmemo_time, self.channels[1].stmemo_medleft)
-                    axs_live[1, 2].relim()
-                    axs_live[1, 2].autoscale_view()
+                # IF VALVE NOT IN USE, update medium left plots
+                if(not self.valve.in_use):
+                    # update the medium left plot for channel 1
+                    if(self.channels[0].in_use):
+                        ch1_medleft_line_live.set_data(self.channels[0].stmemo_time, self.channels[0].stmemo_medleft)
+                        axs_live[1, 1].relim()
+                        axs_live[1, 1].autoscale_view()
 
-                # update the inlet plot for the valve
-                if(self.valve.in_use):
-                    valve_inlet_line_live.set_data(self.valve.stmemo_time, self.valve.stmemo_inlet)
-                    axs_live[2, 1].relim()
-                    axs_live[2, 1]. autoscale_view()
+                    # update the medium left plot for channel 2
+                    if (self.channels[1].in_use):
+                        ch2_medleft_line_live.set_data(self.channels[1].stmemo_time, self.channels[1].stmemo_medleft)
+                        axs_live[1, 2].relim()
+                        axs_live[1, 2].autoscale_view()
 
-                # update the input conc plot for the valve
-                if (self.valve.in_use):
-                    valve_input_conc_line_live.set_data(self.valve.stmemo_time, self.valve.stmemo_input_conc)
-                    axs_live[2, 2].relim()
-                    axs_live[2, 2].autoscale_view()
+                # IF VALVE IN USE, update valve plots
+                else:
+                    # update the inlet plot for the valve
+                    if(self.valve.in_use):
+                        valve_inlet_line_live.set_data(self.valve.stmemo_time, self.valve.stmemo_inlet)
+                        axs_live[1, 1].relim()
+                        axs_live[1, 1]. autoscale_view()
+
+                    # update the input conc plot for the valve
+                    if (self.valve.in_use):
+                        valve_input_conc_line_live.set_data(self.valve.stmemo_time, self.valve.stmemo_input_conc)
+                        axs_live[1, 2].relim()
+                        axs_live[1, 2].autoscale_view()
 
             return ch1_flow_line_live, ch1_p_line_live, \
                 ch1_medleft_line_live, \
@@ -1805,9 +1871,9 @@ class OB1_manager:
         plt.ioff()  # Turn off interactive mode
 
         # initialise the figure with subplots
-        fig, axs = plt.subplots(nrows=3, ncols=3,
-                                width_ratios=[2, 1, 1], height_ratios=[1, 1, 1],
-                                figsize=(10, 7.5))
+        fig, axs = plt.subplots(nrows=2, ncols=3,
+                                width_ratios=[2, 1, 1], height_ratios=[1, 1],
+                                figsize=(10, 5))
 
         # plot the flow and reference flow in the same subfigure using matplotlib
         # plot formatting
@@ -1859,19 +1925,8 @@ class OB1_manager:
                            linestyle='-', color='lightseagreen', alpha=0.5)
             # show legend
             axs[0, 1].legend(loc='upper left')
-
-        # plot the estimated medium left for channel 1
-        axs[1, 1].grid()
-        if(self.channels[0].in_use):
-            axs[1, 1].set_ylim(bottom=0, top=55)
-            # plot
-            axs[1, 1].set_xlabel('Time since cruise control start (s)')
-            axs[1, 1].set_ylabel('Medium left in source (ml)')
-            # plot the medium left
-            axs[1, 1].plot(data_time[0], data_medleft[0], label='CH 1 Medium left',
-                           linestyle='-', color='gold')
-            # show legend
-            axs[1, 1].legend(loc='upper left')
+        else:
+            axs[0, 1].axis('off')
 
         # plot the PID gains for channel 2
         axs[0, 2].grid()
@@ -1885,43 +1940,59 @@ class OB1_manager:
                            linestyle='-', color='lightseagreen', alpha=0.5)
             # show legend
             axs[0, 2].legend(loc='upper left')
+        else:
+            axs[0, 2].axis('off')
 
-        # plot the estimated medium left for channel 1
-        axs[1, 2].grid()
-        if (self.channels[1].in_use):
-            axs[1, 2].set_ylim(bottom=0, top=55)
-            # plot labels
-            axs[1, 2].set_xlabel('Time since cruise control start (s)')
-            axs[1, 2].set_ylabel('Medium left in source (ml)')
-            # plot the medium left
-            axs[1, 2].plot(data_time[1], data_medleft[1], label='CH 2 Medium left',
-                           linestyle='-', color='gold')
-            # show legend
-            axs[1, 2].legend(loc='upper left')
+        # IF VALVE NOT IN USE, plot estimated medium left in source for each channel
+        if(not self.valve.in_use):
+            # plot the estimated medium left for channel 1
+            axs[1, 1].grid()
+            if(self.channels[0].in_use):
+                axs[1, 1].set_ylim(bottom=0, top=55)
+                # plot
+                axs[1, 1].set_xlabel('Time since cruise control start (s)')
+                axs[1, 1].set_ylabel('Medium left in source (ml)')
+                # plot the medium left
+                axs[1, 1].plot(data_time[0], data_medleft[0], label='CH 1 Medium left',
+                               linestyle='-', color='gold')
+                # show legend
+                axs[1, 1].legend(loc='upper left')
 
-        # plot the valve inlet
-        axs[2,1].grid()
-        if(self.valve.in_use):
-            axs[2, 1].set_ylim(bottom=1, top=12)
-            # plot labels
-            axs[2, 1].set_xlabel('Time since cruise control start (s)')
-            axs[2, 1].set_ylabel('Valve inlet')
-            # plot the inlets
-            axs[2, 1].plot(data_time[2], data_valve_inlet, label='Valve inlet',
-                           linestyle='-', color='black')
+            # plot the estimated medium left for channel 2
+            axs[1, 2].grid()
+            if (self.channels[1].in_use):
+                axs[1, 2].set_ylim(bottom=0, top=55)
+                # plot labels
+                axs[1, 2].set_xlabel('Time since cruise control start (s)')
+                axs[1, 2].set_ylabel('Medium left in source (ml)')
+                # plot the medium left
+                axs[1, 2].plot(data_time[1], data_medleft[1], label='CH 2 Medium left',
+                               linestyle='-', color='gold')
+                # show legend
+                axs[1, 2].legend(loc='upper left')
 
-        # plot the valve input conc.
-        axs[2, 2].grid()
-        if (self.valve.in_use):
-            # plot labels
-            axs[2, 2].set_xlabel('Time since cruise control start (s)')
-            axs[2, 2].set_ylabel('Input conc.')
-            # plot the inlets
-            axs[2, 2].plot(data_time[2], data_valve_input_conc, label='Input conc.',
-                           linestyle='-', color='black')
+        # OTHERWISE, PLIOT VALVE READINGS
+        else:
+            # plot the valve inlet
+            axs[1, 1].grid()
+            if (self.valve.in_use):
+                axs[1, 1].set_ylim(bottom=1, top=12)
+                # plot labels
+                axs[1, 1].set_xlabel('Time since cruise control start (s)')
+                axs[1, 1].set_ylabel('Valve inlet')
+                # plot the inlets
+                axs[1, 1].plot(data_time[2], data_valve_inlet, label='Valve inlet',
+                               linestyle='-', color='black')
 
-        # bottom left subplot not in use
-        axs[2, 0].axis('off')
+            # plot the valve input conc.
+            axs[1, 2].grid()
+            if (self.valve.in_use):
+                # plot labels
+                axs[1, 2].set_xlabel('Time since cruise control start (s)')
+                axs[1, 2].set_ylabel('Set input conc.')
+                # plot the inlets
+                axs[1, 2].plot(data_time[2], data_valve_input_conc, label='Set input conc.',
+                               linestyle='-', color='black')
 
         # adjust the layout
         fig.tight_layout(pad=1.0)
@@ -2023,6 +2094,7 @@ class channel_manager:
         self.flow_lnub = np.array([])
         self.safeguard_check_steps = np.array([])
         self.num_safeguards = 0
+        self.safeguard_conds = []
 
         # medium in the source at the start of the run and currently left
         self.medstart = -1.0
@@ -2059,7 +2131,7 @@ class valve_manager:
         self.dt_check = 0.0
         self.dt_log = 0.0
         self.log_every_points = 0
-        self.short_term_memo_size = 0
+        self.short_term_memo_dur = 0
 
         # valve data log file path (initialised with an empty string, then updated according to the user input)
         self.logfilepath =''
@@ -2130,8 +2202,8 @@ def main():
 
     # append the experiment's starting time to the log file name
     date_time_string = (datetime.datetime.now()).strftime("_%d%m_%H%M")
-    OB1_logfilename = r'logs/log_' + date_time_string + '_OB1.csv'
-    valve_logfilename = r'logs/log_' + date_time_string + '_valve.csv'
+    OB1_logfilename = r'logs/log'+ date_time_string + '_OB1.csv'
+    valve_logfilename = r'logs/log' + date_time_string + '_valve.csv'
 
     # begin cruise control
     Kenobi.cruise_control(OB1_logfilename, valve_logfilename)
@@ -2142,7 +2214,7 @@ def main():
     # plot the logged data
     Kenobi.plot_log(show_safeguards=False,
                     OB1_logfilename=OB1_logfilename, valve_logfilename=valve_logfilename,
-                    plotfilename='logs/log_' + date_time_string + '.png')
+                    plotfilename='logs/log' + date_time_string + '.png')
 
     return
 
