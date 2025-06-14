@@ -254,11 +254,11 @@ class OB1_manager:
                     inlet_cntr += 1
                 self.valve.inlet_concs = np.array(inlet_concs)
                 # set inlet settings
-                if(self.valve.mode=='set'):
+                if(self.valve.mode=='set' or self.valve.mode=='set_scripted'):
                     self.valve.inlet = int(input('starting_inlet: specify the starting inlet : '))
                     self.valve.input_conc = self.valve.inlet_concs[self.valve.inlet-1]
                 # pwm settings
-                elif(self.valve.mode=='pwm'):
+                elif(self.valve.mode=='pwm' or self.valve.mode=='pwm_scripted'):
                     self.valve.pwm_period = float(input('pwm_period: the PWM period (seconds) : '))
                     self.valve.input_conc = float(input('starting_conc: the starting conc. : '))
                     self.valve.pwm_update_controls()    # update the valve controls for the selected input conc
@@ -271,6 +271,10 @@ class OB1_manager:
             if (valve_error_msg != 0):
                 print('Valve error: %d' % valve_error_msg)
                 exit(1)
+
+            # load the script if using one
+            if(self.valve.mode == 'set_scripted' or self.valve.mode == 'pwm_scripted'):
+                self.valve.load_script()
 
         else:
             print('(Valve not in use)')
@@ -583,12 +587,12 @@ class OB1_manager:
                     self.valve.inlet_concs = np.array(inlet_concs)
                     curr_line = next_meaningful_line(curr_line)
                     # get other valve specs depending on the mode
-                    if(self.valve.mode=='set'):
+                    if(self.valve.mode=='set' or self.valve.mode=='set_scripted'):
                         # get the starting inlet
                         self.valve.inlet = int(lines[curr_line].split()[2])
                         self.valve.input_conc = self.valve.inlet_concs[self.valve.inlet-1]# also get the corresponding starting input concentration
                         curr_line = next_meaningful_line(curr_line)
-                    elif(self.valve.mode=='pwm'):
+                    elif(self.valve.mode=='pwm' or self.valve.mode=='pwm_scripted'):
                         # get the PWM period
                         self.valve.pwm_period = float(lines[curr_line].split()[2])
                         curr_line = next_meaningful_line(curr_line)
@@ -936,13 +940,13 @@ class OB1_manager:
                 for inlet_cntr in range(0, len(self.valve.inlet_concs)):
                     if(inlet_cntr!=0):
                         inlet_concs_str += ' '
-                    inlet_concs_str += str(self.valve.inlet_concs)
+                    inlet_concs_str += str(self.valve.inlet_concs[inlet_cntr])
                 file.write('inlet_concs = ' + inlet_concs_str + '\n')
                 # save other valve specs depending on the mode
-                if (self.valve.mode == 'set'):
+                if (self.valve.mode == 'set' or self.valve.mode == 'set_scripted'):
                     # get the starting inlet
                     file.write('starting_inlet = ' + str(self.valve.inlet) + '\n')
-                elif (self.valve.mode == 'pwm'):
+                elif (self.valve.mode == 'pwm' or self.valve.mode == 'pwm_scripted'):
                     # save the PWM period
                     file.write('pwm_period = ' + str(self.valve.pwm_period) + ' s\n')
                     # save the starting desired input concentration of the compound of interest
@@ -1000,6 +1004,8 @@ class OB1_manager:
                 row = ['Time (s)']
                 valve_entries = ['Valve inlet', 'Valve input conc.', 'Valve duty cycle',
                                  'PWM low inlet', 'PWM high inlet']
+                if(self.valve.mode=='set_scripted' or self.valve.mode=='pwm_scripted'):
+                    valve_entries.append('Time since script launch (s)')
                 for row_entry in valve_entries:
                     row.append(row_entry)
                 logwriter.writerow(row)
@@ -1247,6 +1253,8 @@ class OB1_manager:
             cmds_on_offer += '; set_valve_inlet'
         elif (self.valve.mode == 'pwm'):
             cmds_on_offer += '; set_input_conc'
+        elif( self.valve.mode == 'set_scripted' or self.valve.mode == 'pwm_scripted'):
+            cmds_on_offer += '; launch_script'
         cmds_on_offer += '; live_plot'
 
         while self.doing_cruise_control:
@@ -1316,14 +1324,25 @@ class OB1_manager:
                 self.user_valve_cmd_queue.put((1,  # command code: 1 for changing the PWM input conc.
                                                # args
                                                new_input_conc, 0, 0))
+            elif(user_cmd == 'launch_script'):
+                self.user_valve_cmd_queue.put((2,  # command code: 2 for launching a script
+                                               # args
+                                               0, 0, 0))
         return
 
     def cruise_control_valve(self):
-        curr_pwm_input_set_time = time.time()  # time at which the valve was set to enforce the set PWM input
+        curr_inlet_set_time = time.time()  # time at which the valve was set to the current inlet - FOR SET_SCRIPTED
+        curr_pwm_input_set_time = time.time()  # time at which the valve was set to enforce the set PWM input - FOR PWM & PWM_SCRIPTED
+
         pwm_period_cntr = 0 # number of PWM periods which have passed since the beginning of cruise control
         valve_check_cntr = 0 # number of checks on the valve by the computer since the beginning of cruise control
         next_action = 0 # next action: 0 if getting commands/updating stmemo, 1 if switching to high input, 2 if switching to low input
-        
+
+        # FOR SCRIPTED VALVE COMMANDS
+        script_launch_time = -1.0 # time at which the scrip was launched - initialised as impossible -1 before the launch event
+        next_scripted_cmd_time = -1.0   # time of execution for the next scripted command
+        next_scripted_cmd = -1  # the next scripted command
+
         # set inlet mode - just check for user-prompted inlet changes every dt_check seconds (next_action always zero)
         if(self.valve.mode=='set'):
             while (self.doing_cruise_control):
@@ -1501,7 +1520,8 @@ class OB1_manager:
                 # if PWM means just permanently staying in high or low state, just wait until the next check
                 if (self.valve.pwm_duty_cycle <= 0 or self.valve.pwm_duty_cycle >= 1):
                     next_action = 0
-                    time_to_check = max(valve_check_cntr * self.valve.dt_check - (time.time() - self.cc_start_time), 0.0)
+                    time_since_curr_pwm_input_set = time.time() - curr_pwm_input_set_time  # get the time the valve has been enforcing a given input conc. by PWM
+                    time_to_check = max(valve_check_cntr * self.valve.dt_check - time_since_curr_pwm_input_set, 0.0)
                     time.sleep(time_to_check)
                 # otherwise, determine time until each action has to be made
                 else:
@@ -1518,6 +1538,326 @@ class OB1_manager:
                         next_action = 1
                         time.sleep(time_to_switch_to_high)
                     elif(time_to_switch_to_low <= time_to_check):
+                        next_action = 2
+                        time.sleep(time_to_switch_to_low)
+                    else:
+                        next_action = 0
+                        time.sleep(time_to_check)
+
+        # SET mode with scripted commands
+        elif(self.valve.mode == 'set_scripted'):
+            # first action is the initial check on the valve by the computer
+            next_action = 0
+            # set the executed script command counter - initialised as the impossible -1
+            scripted_cmd_cntr = -1
+            # get the number of scripted commands
+            with self.lock:
+                num_scripted_cmds = len(self.valve.scripted_cmds)
+
+            # cruise control loop
+            while (self.doing_cruise_control):
+                # act depending on what ought to be done next
+
+                # CHECK ON THE VALVE
+                if (next_action == 0):
+                    # HANDLE THE USER INPUT, IF ANY
+                    try:
+                        # get the user command and the argument
+                        user_cmd, user_cmd_arg0, user_cmd_arg1, user_cmd_arg2 = self.user_valve_cmd_queue.get_nowait()
+
+                        if (user_cmd == 2):  # 2 for launching the valve script
+                            # record the time at which the script was launched
+                            script_launch_time = time.time()
+                            # start counting the scripted commands
+                            script_cmd_cntr = 0
+                            # get the next command from the script and the time of its execution
+                            next_scripted_cmd_time = self.valve.scripted_cmd_times[script_cmd_cntr]
+                            next_scripted_cmd = self.valve.scripted_cmds[script_cmd_cntr]
+                            # if the command is to be executed striaghtaway, update pwm controls out of due order
+                            if (next_scripted_cmd_time == 0):
+                                next_action = 3
+                                continue
+
+                        else:
+                            self.print_queue.put('ERROR: the valve is in SCRIPTED SET INLET mode')
+                    except:
+                        pass
+
+                    # RECORD THE VALVE DATA IN SHORT-TERM MEMORY
+                    # get the time of record
+                    t_check_absolute = time.time()  # get the time of the check - NOT from the start of cruise control
+                    t_check_relative = t_check_absolute - self.cc_start_time  # convert to time from the start of cruise control
+                    with self.lock:
+                        self.valve.stmemo_time.append(t_check_relative)
+                        self.valve.stmemo_inlet.append(self.valve.inlet)
+                        self.valve.stmemo_input_conc.append(self.valve.input_conc)
+                        # pop the oldest readings if short-term memory is full
+                        if (self.valve.stmemo_time[-1] - self.valve.stmemo_time[0] > self.valve.short_term_memo_dur):
+                            self.valve.stmemo_time.pop(0)
+                            self.valve.stmemo_inlet.pop(0)
+                            self.valve.stmemo_input_conc.pop(0)
+
+                    # LOG THE DATA IF IT'S TIME TO DO SO
+                    if (valve_check_cntr % self.valve.log_every_points == 0):
+                        with open(self.valve.logfilepath, 'a', newline='') as logfile:
+                            logwriter = csv.writer(logfile)
+                            with self.lock:
+                                row = [t_check_relative]  # time of the readings
+                                row = row + [self.valve.stmemo_inlet[-1], self.valve.stmemo_input_conc[-1]]
+                                if(script_launch_time < 0):
+                                    row = row + [None]
+                                else:
+                                    row = row + [time.time() - script_launch_time]
+                                logwriter.writerow(row, )
+
+                    # UPDATE THE CHECK PERIOD COUNTER
+                    valve_check_cntr += 1  # update the check counter for the next step
+
+                # SWITCH THE VALVE INLET IF NEEDED
+                elif(next_action == 3):
+                    # print an error message for impossible inlets outside the 1-12 range
+                    if (next_scripted_cmd < 1 or next_scripted_cmd > 12):
+                        self.print_queue.put('ERROR: impossible valve inlet')
+                    # print an error message if the desired valve inlet not in use
+                    if (next_scripted_cmd > len(self.valve.inlet_concs)):
+                        self.print_queue.put('ERROR: valve inlet not in use')
+                    # otherwise, update valve controls
+                    else:
+                        with self.lock:
+                            self.valve.inlet = int(next_scripted_cmd)
+                            self.valve.input_conc = self.valve.inlet_concs[self.valve.inlet - 1]
+
+                        # set the valve to desired input
+                        valve_error_msg = MUX_DRI_Set_Valve(self.valve.instridval,  # valve ID value
+                                                            c_int32(self.valve.inlet),  # valve inlet
+                                                            0  # valve rotation direction (zero for shortest)
+                                                            )
+                        if (valve_error_msg != 0):
+                            print('Valve error: %d' % valve_error_msg)
+                            exit(1)
+                        # get the next command in the script
+                        scripted_cmd_cntr += 1
+                        if (scripted_cmd_cntr == num_scripted_cmds):
+                            next_scripted_cmd_time = -1.0  # no more commands in the script
+                            next_scripted_cmd = -1
+                        else:
+                            with self.lock:
+                                next_scripted_cmd_time = self.valve.scripted_cmd_times[scripted_cmd_cntr]
+                                next_scripted_cmd = self.valve.scripted_cmds[scripted_cmd_cntr]
+                        # reset time at which the valve was set to the current inlet
+                        curr_inlet_set_time = time.time()
+                        # reset the valve check counter, since we're now enforcing a new PWM input conc.
+                        valve_check_cntr = 0
+
+                # DETERMINE WHICH ACTION TO TAKE NEXT
+                # check on the valve or execut a scritped command
+                time_since_curr_pwm_input_set = time.time() - curr_inlet_set_time  # get the time the valve has been enforcing a given input conc. by PWM
+                # time to the next valve check by the computer
+                time_to_check = max(valve_check_cntr * self.valve.dt_check - time_since_curr_pwm_input_set,
+                                    0.0)
+                # time to the next scripted command
+                if (next_scripted_cmd_time < 0):
+                    time_to_next_scripted_cmd = np.inf
+                else:
+                    time_to_next_scripted_cmd = max(
+                        next_scripted_cmd_time - (time.time() - script_launch_time), 0.0)
+                # pick the shortest time to wait, prioritising script command execution all things equal
+                if (time_to_check < time_to_next_scripted_cmd):
+                    next_action = 0
+                    time.sleep(time_to_check)
+                else:
+                    next_action = 3
+                    time.sleep(time_to_next_scripted_cmd)
+
+        # PWM mode with scripted commands
+        elif (self.valve.mode == 'pwm_scripted'):
+            # first action is setting the inlet valve to high if it ever should be high (and to low otherwise)
+            if (self.valve.pwm_duty_cycle >= 0):
+                next_action = 1
+            else:
+                next_action = 2
+            # set the PWM period counter
+            pwm_period_cntr = 0
+            # set the executed script command counter - initialised as the impossible -1
+            scripted_cmd_cntr = -1
+            # get the number of scripted commands
+            with self.lock:
+                num_scripted_cmds = len(self.valve.scripted_cmds)
+
+            # cruise control loop
+            while (self.doing_cruise_control):
+                # act depending on what ought to be done next
+
+                # CHECK ON THE VALVE AND USER COMMANDS
+                if (next_action == 0):
+                    # HANDLE THE USER INPUT, IF ANY
+                    try:
+                        # get the user command and the argument
+                        user_cmd, user_cmd_arg0, user_cmd_arg1, user_cmd_arg2 = self.user_valve_cmd_queue.get_nowait()
+
+                        if (user_cmd == 2):  # 2 for launching the valve script
+                            # record the time at which the script was launched
+                            script_launch_time = time.time()
+                            # start counting the scripted commands
+                            script_cmd_cntr = 0
+                            # get the next command from the script and the time of its execution
+                            next_scripted_cmd_time = self.valve.scripted_cmd_times[script_cmd_cntr]
+                            next_scripted_cmd = self.valve.scripted_cmds[script_cmd_cntr]
+                            # if the command is to be executed striaghtaway, update pwm controls out of due order
+                            if(next_scripted_cmd_time==0):
+                                next_action = 3
+                                continue
+                        else:
+                            self.print_queue.put('ERROR: the valve is in SCRIPTED PWM mode')
+                    except:
+                        pass
+                    # RECORD THE VALVE DATA IN SHORT-TERM MEMORY
+                    # get the time of record
+                    t_check_absolute = time.time()  # get the time of the check - NOT from the start of cruise control
+                    t_check_rel_to_cc_start = t_check_absolute - self.cc_start_time  # convert to time from THE START OF CRUISE CONTROL
+                    t_check_rel_to_pwm_set = t_check_absolute - curr_pwm_input_set_time  # convert to time from THE MOMENT WE STARTED TRACKING THE GIVEN PWM INPUT CONC.
+                    with self.lock:
+                        self.valve.stmemo_time.append(t_check_rel_to_cc_start)
+                        self.valve.stmemo_inlet.append(self.valve.inlet)
+                        self.valve.stmemo_input_conc.append(self.valve.input_conc)
+                        self.valve.stmemo_pwm_duty_cycle.append(self.valve.pwm_duty_cycle)
+                        self.valve.stmemo_pwm_low_inlet.append(self.valve.pwm_low_inlet)
+                        self.valve.stmemo_pwm_high_inlet.append(self.valve.pwm_high_inlet)
+                        # pop the oldest readings if short-term memory is full
+                        if (self.valve.stmemo_time[-1] - self.valve.stmemo_time[0] > self.valve.short_term_memo_dur):
+                            self.valve.stmemo_time.pop(0)
+                            self.valve.stmemo_inlet.pop(0)
+                            self.valve.stmemo_input_conc.pop(0)
+                            self.valve.stmemo_pwm_duty_cycle.pop(0)
+                            self.valve.stmemo_pwm_low_inlet.pop(0)
+                            self.valve.stmemo_pwm_high_inlet.pop(0)
+                    # LOG THE DATA IF IT'S TIME TO DO SO
+                    if (valve_check_cntr % self.valve.log_every_points == 0):
+                        with open(self.valve.logfilepath, 'a', newline='') as logfile:
+                            logwriter = csv.writer(logfile)
+                            with self.lock:
+                                row = [t_check_rel_to_cc_start]  # time of the readings
+                                # valve inlet and input conc.
+                                row = row + [self.valve.stmemo_inlet[-1], self.valve.stmemo_input_conc[-1]]
+                                # pwm characteristics
+                                row = row + [
+                                    self.valve.stmemo_pwm_duty_cycle[-1],
+                                    self.valve.stmemo_pwm_low_inlet[-1],
+                                    self.valve.stmemo_pwm_high_inlet[-1]
+                                ]
+                                # time since the script was launched
+                                if(script_launch_time<0):
+                                    row = row + [None]
+                                else:
+                                    row = row + [time.time() - script_launch_time]
+                                logwriter.writerow(row, )
+
+                    # update the number of checks which have been performed
+                    valve_check_cntr += 1
+
+
+                # SET VALVE INLET TO HIGH
+                elif (next_action == 1):
+                    # switching to the high inlet again means a PWM period has been completed
+                    pwm_period_cntr += 1
+
+                    # now, actually switch the valve to the high state
+                    valve_error_msg = MUX_DRI_Set_Valve(self.valve.instridval,  # valve ID value
+                                                        c_int32(self.valve.pwm_high_inlet),  # valve inlet
+                                                        2  # valve rotation direction (2 for counterclockwise)
+                                                        )
+                    if (valve_error_msg != 0):
+                        print('Valve error: %d' % valve_error_msg)
+                        exit(1)
+                    self.valve.inlet = self.valve.pwm_high_inlet  # no lock as accessed only by thisn thread
+
+
+                # SET VALVE INLET TO LOW
+                elif (next_action == 2):
+                    valve_error_msg = MUX_DRI_Set_Valve(self.valve.instridval,  # valve ID value
+                                                        c_int32(self.valve.pwm_low_inlet),  # valve inlet
+                                                        1  # valve rotation direction (1 for clockwise)
+                                                        )
+                    if (valve_error_msg != 0):
+                        print('Valve error: %d' % valve_error_msg)
+                        exit(1)
+                    self.valve.inlet = self.valve.pwm_low_inlet  # no lock as accessed only by thisn thread
+
+
+                # UPDATE VALVE CONTROLS ACCORDING TO THE SCRIPTED COMMAND
+                elif(next_action == 3):
+                    with self.lock:
+                        self.valve.input_conc = next_scripted_cmd
+                        self.valve.pwm_update_controls()
+                    # get the next command in the script
+                    scripted_cmd_cntr += 1
+                    if(scripted_cmd_cntr == num_scripted_cmds):
+                        next_scripted_cmd_time = -1.0  # no more commands in the script
+                        next_scripted_cmd = -1
+                    else:
+                        with self.lock:
+                            next_scripted_cmd_time = self.valve.scripted_cmd_times[scripted_cmd_cntr]
+                            next_scripted_cmd = self.valve.scripted_cmds[scripted_cmd_cntr]
+                    # reset the PWM period counter and time at which the valve was set to enforce the given PWM input
+                    pwm_period_cntr = 0
+                    curr_pwm_input_set_time = time.time()
+                    # reset the valve check counter, since we're now enforcing a new PWM input conc.
+                    valve_check_cntr = 0
+                    # out of due order, set the inlet valve to high if it ever should be high (and to low otherwise)
+                    if (self.valve.pwm_duty_cycle > 0):
+                        next_action = 1
+                        continue
+                    else:
+                        next_action = 2
+                        continue
+
+                # DETERMINE WHICH ACTION TO TAKE NEXT
+                # if PWM means just permanently staying in high or low state, just wait until the next check or the next scripted command
+                if (self.valve.pwm_duty_cycle <= 0 or self.valve.pwm_duty_cycle >= 1):
+                    time_since_curr_pwm_input_set = time.time() - curr_pwm_input_set_time  # get the time the valve has been enforcing a given input conc. by PWM
+                    # time to the next valve check by the computer
+                    time_to_check = max(valve_check_cntr * self.valve.dt_check - time_since_curr_pwm_input_set,
+                                        0.0)
+                    # time to the next scripted command
+                    if(next_scripted_cmd_time < 0):
+                        time_to_next_scripted_cmd = np.inf
+                    else:
+                        time_to_next_scripted_cmd = max(next_scripted_cmd_time - (time.time() - script_launch_time), 0.0)
+                    # pick the shortest time to wait, prioritising script command execution all things equal
+                    if(time_to_check<time_to_next_scripted_cmd):
+                        next_action = 0
+                        time.sleep(time_to_check)
+                    else:
+                        next_action = 3
+                        time.sleep(time_to_next_scripted_cmd)
+                # otherwise, determine time until each action has to be made
+                else:
+                    time_since_curr_pwm_input_set = time.time() - curr_pwm_input_set_time  # get the time the valve has been enforcing a given input conc. by PWM
+                    time_to_switch_to_high = max(
+                        self.valve.pwm_period * pwm_period_cntr - time_since_curr_pwm_input_set,
+                        0.0)  # get the time until the next switch to a high input
+                    if (self.valve.inlet == self.valve.pwm_high_inlet):  # if we have a high inlet now, closest switch is to the low inlet
+                        time_to_switch_to_low = max(
+                            self.valve.pwm_period * pwm_period_cntr - self.valve.pwm_time_in_low - time_since_curr_pwm_input_set,
+                            0.0)
+                    else:
+                        time_to_switch_to_low = max(self.valve.pwm_period * (
+                                    pwm_period_cntr + 1) - self.valve.pwm_time_in_low - time_since_curr_pwm_input_set,
+                                                    0.0)
+                    time_to_check = max(valve_check_cntr * self.valve.dt_check - time_since_curr_pwm_input_set, 0.0)
+                    if (next_scripted_cmd_time < 0):
+                        time_to_next_scripted_cmd = np.inf
+                    else:
+                        time_to_next_scripted_cmd = max(next_scripted_cmd_time - (time.time() - script_launch_time), 0.0)
+                    # schedule the soonest action (valve inlet switching prioritised over computer checks)
+                    # prioritise the script command execution over all others, valve switchings over computer checks
+                    if(time_to_next_scripted_cmd <= time_to_switch_to_high and time_to_next_scripted_cmd <= time_to_switch_to_low and time_to_next_scripted_cmd <= time_to_check):
+                        next_action = 3
+                        time.sleep(time_to_next_scripted_cmd)
+                    elif ((time_to_switch_to_high < time_to_switch_to_low) and (time_to_switch_to_high <= time_to_check)):
+                        next_action = 1
+                        time.sleep(time_to_switch_to_high)
+                    elif (time_to_switch_to_low <= time_to_check):
                         next_action = 2
                         time.sleep(time_to_switch_to_low)
                     else:
@@ -2165,6 +2505,7 @@ class valve_manager:
         self.logfilepath =''
         
         # valve mode set inlets ('set') or PWM ('pwm')
+        # or scripted versions thereof ('_scripted') suffix added
         self.mode = 'set'
         
         # concentrations of a compound of interest in the inlets
@@ -2194,6 +2535,11 @@ class valve_manager:
         self.stmemo_pwm_duty_cycle = []    # PWM duty cycle (from 0 to 1)
         self.stmemo_pwm_low_inlet = []  # low-concentration inlet used for PWM
         self.stmemo_pwm_high_inlet = []    # high-concentration inlet used for PWM
+
+        # program for the valve set by the script
+        self.scripted_cmd_times = np.array([])
+        self.scripted_cmds = np.array([]) # scripted inlets for set_scripted or input concs. for pwm_scripted
+
         return
 
     # update the PWM controls for the current desired input conc (self.input_conc)
@@ -2220,6 +2566,35 @@ class valve_manager:
         # find the times spent with high and low inlets
         self.pwm_time_in_high = self.pwm_period*self.pwm_duty_cycle
         self.pwm_time_in_low = self.pwm_period - self.pwm_time_in_high
+        return
+
+    # load the script for the valve
+    def load_script(self):
+        while True:
+            # prompt the user to choose the script
+            print('Select the valve script to load: ')
+            script_filename = tkinter.filedialog.askopenfilename()
+
+            # read the .csv script
+            script_df = pd.read_csv(script_filename, na_values='N/A')  # get the dataframe from csv
+
+            # check if the script is compatible with the valve mode, re-prompt the user if not
+            if not (
+                    (script_df.columns[1] == 'Valve inlet' and self.mode == 'set_scripted') or
+                    (script_df.columns[1] == 'Valve input conc.' and self.mode == 'pwm_scripted')
+            ):
+                print('Wrong script for the valve mode: ' + self.mode)
+                continue
+            break
+
+        # get the scripted switching times
+        self.scripted_cmd_times = script_df['Time (s)'].to_numpy()
+        # get the scripted commands
+        if (self.mode == 'set_scripted'):
+            self.scripted_cmds = script_df['Valve inlet'].to_numpy()
+        else:
+            self.scripted_cmds = script_df['Valve input conc.'].to_numpy()
+
         return
 
 
