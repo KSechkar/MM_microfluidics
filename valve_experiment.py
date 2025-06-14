@@ -55,10 +55,10 @@ class OB1_manager:
         else:
             # specify the channel(s) in use
             ch1_in_use = input('Is CHANNEL 1 in use? (yes, no) : ')
-            if (ch1_in_use):
+            if (ch1_in_use == 'yes'):
                 self.channels[0].in_use=True
             ch2_in_use = input('Is CHANNEL 2 in use? (yes, no) : ')
-            if (ch2_in_use):
+            if (ch2_in_use == 'yes'):
                 self.channels[1].in_use=True
             valve_in_use = input('Are you using a VALVE? (yes, no) : ')
             if(valve_in_use):
@@ -159,7 +159,7 @@ class OB1_manager:
                 if (ob1_error_msg != 0):
                     print('Sensor addition error: %d' % ob1_error_msg)
                     exit(1)
-            print('Flow sensor for CHANNEL '+str(ch.id)+' added')
+                print('Flow sensor for CHANNEL '+str(ch.id)+' added')
 
         print('\nSET OB1-COMPUTER INTERACTION PREFERENCES')  # ---------------------------------------------------------
         if (interactions_still_todo):
@@ -233,7 +233,7 @@ class OB1_manager:
             # VALVE-COMPUTER INTERACTIONS
             if(self.valve.still_todo['INTERACTIONS']):
                 self.valve.dt_check = float(input('valve_dt_check: how often you want the computer to check on the VALVE (seconds) : '))
-                self.valve.dt_log = float(input('dt_log: how often you want to log VALVE data (seconds) : '))
+                self.valve.dt_log = float(input('valve_dt_log: how often you want to log VALVE data (seconds) : '))
                 self.valve.short_term_memo_dur = float(
                     input('valve_short_term_memo_dur: how long you want to keep ALL most recent VALVE data in memory (seconds) : '))
                 # convert from logging and remembering times to number of data points
@@ -255,12 +255,12 @@ class OB1_manager:
                 self.valve.inlet_concs = np.array(inlet_concs)
                 # set inlet settings
                 if(self.valve.mode=='set'):
-                    self.valve.inlet = int(input('Specify the starting inlet : '))
+                    self.valve.inlet = int(input('starting_inlet: specify the starting inlet : '))
                     self.valve.input_conc = self.valve.inlet_concs[self.valve.inlet-1]
                 # pwm settings
                 elif(self.valve.mode=='pwm'):
-                    self.valve.pwm_period = float(input('Specify the PWM period (seconds) : '))
-                    self.valve.input_conc = float(input('Specify the starting conc. : '))
+                    self.valve.pwm_period = float(input('pwm_period: the PWM period (seconds) : '))
+                    self.valve.input_conc = float(input('starting_conc: the starting conc. : '))
                     self.valve.pwm_update_controls()    # update the valve controls for the selected input conc
 
             # set the inlet back to the starting one (NOTE: both if setting chosen manually and if loaded)
@@ -654,8 +654,18 @@ class OB1_manager:
 
     # fill the tubing for a given channel with liquid
     def fill_channel_tubing(self, ch):
-        # TUBING UP TO THE RESISTANCE - IF VALVE NOT IN USE
-        if(not self.valve.in_use):
+        # ASK IF THIS IS THE CHANNEL WITH THE VALVE - IF IT IS IN USE
+        if (not self.valve.in_use):
+            fill_all_valve_inlets = False
+        else:
+            ch_with_valve = input('Is this the channel with the VALVE? (yes, no) : ')
+            if(ch_with_valve == 'yes'):
+                fill_all_valve_inlets = True
+            else:
+                fill_all_valve_inlets = False
+
+        # TUBING UP TO THE RESISTANCE - IF NOT FILLING THE VALVE INLETS
+        if(not fill_all_valve_inlets):
             ready_for_filling = 'no'
             while (ready_for_filling != 'yes'):
                 print('Connect all system components, excluding the resistance.' +
@@ -678,7 +688,7 @@ class OB1_manager:
             if (ob1_error_msg != 0):
                 print('Pressure setting error: %d' % ob1_error_msg)
                 exit(1)
-        # TUBING UP TO THE RESISTANCE - IF VALVE IN USE
+        # TUBING UP TO THE RESISTANCE - IF FILLING THE VALVE INLETS
         else:
             print('Connect all system components, excluding the resistance.' +
                   '\nPut the outlet into the purge tube.' +
@@ -775,7 +785,7 @@ class OB1_manager:
     
     # set up the safeguards for a given channel
     def make_channel_safeguards(self, ch):
-        add_safeguard = input('Do you want to add a pressure cutoff condition? (yes, no) : ')
+        add_safeguard = input('Do you want to add a condition for cutting off pressure? (yes, no) : ')
         p_bounds = []
         p_lnub = []
         flow_bounds = []
@@ -908,21 +918,39 @@ class OB1_manager:
             if(not self.valve.in_use):
                 file.write('NOT IN USE\n')
             else:
-                # valve mode
-                file.write('mode = ' + self.valve.mode +'\n')
-                # compound-of-interest concentrations in the inlets
-                inlet_conc_string ='inlet_concs ='
-                for inlet_cntr in range(1,len(self.valve.inlet_concs)+1):
-                    inlet_conc_string += (' '+str(self.valve.inlet_concs[inlet_cntr-1]))
-                file.write(inlet_conc_string+'\n')
-                # for set inlet mode, the selected inlet
-                if(self.valve.mode=='set'):
-                    file.write('inlet = '+str(self.valve.inlet))
-                # for pwm mode, PWM period and desired concentration
-                elif(self.valve.mode=='pwm'):
+                file.write('VALVE-COMPUTER INTERACTIONS\n')
+                # save the time between computer checks on the valve
+                file.write('valve_dt_check = '+str(self.valve.dt_check) + ' s\n')
+                # save the logging time for the valve
+                file.write('valve_dt_log = '+str(self.valve.dt_log) + ' s\n')
+                # save the short-term memory duration in seconds
+                file.write('valve_stmemo_dur = '+str(self.valve.short_term_memo_dur) + ' s\n')
+                # finish the computer interactions block
+                file.write('END VALVE-COMPUTER INTERACTIONS\n\n')
+
+                file.write('VALVE OPERATIONS\n')
+                # save the valve mode
+                file.write('mode = ' + str(self.valve.mode) + '\n')
+                # save the compound of interest concentrations in the valve inlets
+                inlet_concs_str = ''
+                for inlet_cntr in range(0, len(self.valve.inlet_concs)):
+                    if(inlet_cntr!=0):
+                        inlet_concs_str += ' '
+                    inlet_concs_str += str(self.valve.inlet_concs)
+                file.write('inlet_concs = ' + inlet_concs_str + '\n')
+                # save other valve specs depending on the mode
+                if (self.valve.mode == 'set'):
+                    # get the starting inlet
+                    file.write('starting_inlet = ' + str(self.valve.inlet) + '\n')
+                elif (self.valve.mode == 'pwm'):
+                    # save the PWM period
                     file.write('pwm_period = ' + str(self.valve.pwm_period) + ' s\n')
-                    file.write('input_conc = ' + str(self.valve.input_conc) + '\n')
-            file.write('END VALVE\n')
+                    # save the starting desired input concentration of the compound of interest
+                    file.write('starting_conc = ' + str(self.valve.input_conc) + '\n')
+                # finish the operations block
+                file.write('END VALVE OPERATIONS\n')
+                # finish the valve block
+                file.write('END VALVE\n')
         return os.path.abspath(filename)
 
     # CRUISE CONTROL FUNCTIONS -----------------------------------------------------------------------------------------
