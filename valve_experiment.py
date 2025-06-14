@@ -1,7 +1,7 @@
 # VALVE_EXPERIMENT.PY
 # Run a mother machine experiment with a single channel CONNECTED TO A MUX DISTRIBUTOR VALVE
 
-EMULATING = True
+EMULATING = False
 
 # IMPORTS --------------------------------------------------------------------------------------------------------------
 # PYTHON PACKAGES
@@ -241,7 +241,7 @@ class OB1_manager:
 
             # VALVE OPERATIONS
             if(self.valve.still_todo['OPERATIONS']):
-                self.valve.mode = input('Specify valve mode (set, pwm) : ')
+                self.valve.mode = input('Specify valve mode (set, pwm, set_scripted, pwm_scripted) : ')
                 # specify compound-of-interest concentrations in all inlets
                 inlet_cntr = 1
                 inlet_concs = []
