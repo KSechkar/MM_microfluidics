@@ -43,9 +43,10 @@ def main():
     # get the valve ID value
     valve_instridval = valve_instrid.value
     # home the valve (necessary step for our MUX Distribtuion valve)
+    answer = (c_char * 10)()
     valve_error_msg = MUX_DRI_Send_Command(valve_instridval,  # valve ID value
-                                           Z_MUX_DRI_Rotation_Shortest,  # valve action: home the valve
-                                           [],
+                                           0,  # valve action: 0 for home the valve
+                                           answer,
                                            # char array for the answer - irrelevant here (needed to get a serial number)
                                            0
                                            # length of the answer array - irrelevant here (needed to get a serial number)

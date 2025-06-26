@@ -220,9 +220,10 @@ class OB1_manager:
             # get the valve ID value
             self.valve.instridval = self.valve.instrid.value
             # home the valve (necessary step for our MUX Distribtuion valve)
+            answer=(c_char * 10)()
             valve_error_msg = MUX_DRI_Send_Command(self.valve.instridval,  # valve ID value
-                                                   Z_MUX_DRI_Rotation_Shortest, # valve action: home the valve
-                                                   [],  # char array for the answer - irrelevant here (needed to get a serial number)
+                                                   0, # valve action: o for 'home the valve'
+                                                   answer,  # char array for the answer - irrelevant here (needed to get a serial number)
                                                    0    # length of the answer array - irrelevant here (needed to get a serial number)
                                                    )
             if (valve_error_msg != 0):
@@ -970,6 +971,7 @@ class OB1_manager:
         self.OB1_logfilepath = os.path.abspath(OB1_log_filename)
         if(self.valve.in_use):
             self.valve.logfilepath = os.path.abspath(valve_log_filename)
+            self.valve.error_logfilepath = os.path.abspath(valve_log_filename[:-4]+'_errors.txt')
 
         # ask how much medium there is in the source - IF VALVE NOT IN USE
         if(not self.valve.in_use):
@@ -1009,6 +1011,8 @@ class OB1_manager:
                 for row_entry in valve_entries:
                     row.append(row_entry)
                 logwriter.writerow(row)
+            with(open(self.valve.error_logfilepath, 'w', newline='')) as logfile:
+                logfile.write('VALVE ERROR LOG:\n')
 
         # start the threads
         self.threads_just_started = True
@@ -1093,6 +1097,13 @@ class OB1_manager:
                         self.print_queue.put('Unsupported when VALVE is in use!')
                     else:
                         ch.medleft_new = user_cmd_arg0
+
+                elif (user_cmd == 6): # 6 for purging the integral controller's memory
+                    if (not ch.in_use):
+                        self.print_queue.put('CHANNEL ' + str(ch.id) + ' not in use!')
+                    else:
+                        ch.flerrint = 0.0
+                        self.print_queue.put('Integral controller memory set to zero')
             except:
                 pass
 
@@ -1246,14 +1257,15 @@ class OB1_manager:
     # handle user input during cruise control
     def cruise_control_user(self):
         # get the set of commands on offer for a given valve mode
-        cmds_on_offer = 'stop; set_ref_flow, set_const_press, set_gains'
+        cmds_on_offer = 'stop; set_ref_flow, set_const_press, set_gains, purge_integ'
         if (not self.valve.in_use):
             cmds_on_offer += '; change_medium'
         elif (self.valve.mode == 'set'):
             cmds_on_offer += '; set_valve_inlet'
         elif (self.valve.mode == 'pwm'):
             cmds_on_offer += '; set_input_conc'
-        elif( self.valve.mode == 'set_scripted' or self.valve.mode == 'pwm_scripted'):
+        elif((self.valve.mode == 'set_scripted' or self.valve.mode == 'pwm_scripted')
+              and (not self.valve.script_running)):
             cmds_on_offer += '; launch_script'
         cmds_on_offer += '; live_plot'
 
@@ -1313,6 +1325,12 @@ class OB1_manager:
                                          ch_id, # channel
                                          # args
                                          medleft_new, 0, 0))
+            elif (user_cmd == 'purge_integ'):
+                ch_id = float(input("Specify the channel (1,2) : "))
+                self.user_cmd_queue.put((6,  # command code: 5 for purging the integral controller memory
+                                         ch_id,  # channel
+                                         # args
+                                         0, 0, 0))
             # VALVE COMMANDS -------------------------------------------------------------------------------------
             elif(user_cmd=='set_valve_inlet'):
                 new_inlet = int(input("Specify the inlet : "))
@@ -1368,10 +1386,11 @@ class OB1_manager:
                                                                 c_int32(self.valve.inlet),  # valve inlet
                                                                 0  # valve rotation direction (zero for shortest)
                                                                 )
+                            # record valve error in the log
                             if (valve_error_msg != 0):
-                                print('Valve error: %d' % valve_error_msg)
-                                exit(1)
-                            # report back to the user
+                                with open(self.valve.error_logfilepath, 'a') as file:
+                                    file.write('Valve error '+str(valve_error_msg)+
+                                               ' at t = '+ str(time.time()-self.cc_start_time) + ' s\n')
                             self.print_queue.put('Inlet changed')
                     else:
                         self.print_queue.put('ERROR: the valve is in set inlet mode')
@@ -1496,11 +1515,16 @@ class OB1_manager:
                     # now, actually switch the valve to the high state
                     valve_error_msg = MUX_DRI_Set_Valve(self.valve.instridval,  # valve ID value
                                                         c_int32(self.valve.pwm_high_inlet),  # valve inlet
-                                                        2  # valve rotation direction (2 for counterclockwise)
+                                                        # 2  # valve rotation direction (2 for counterclockwise)
+                                                        0  # valve rotation direction (0 for shortest)
                                                         )
+
+                    # record valve error in the log, if any
                     if (valve_error_msg != 0):
-                        print('Valve error: %d' % valve_error_msg)
-                        exit(1)
+                        with open(self.valve.error_logfilepath, 'a') as file:
+                            file.write('Valve error ' + str(valve_error_msg) +
+                                       ' at t = ' + str(time.time() - self.cc_start_time) + ' s\n')
+
                     self.valve.inlet = self.valve.pwm_high_inlet    # no lock as accessed only by thisn thread
 
 
@@ -1508,11 +1532,15 @@ class OB1_manager:
                 elif(next_action == 2):
                     valve_error_msg = MUX_DRI_Set_Valve(self.valve.instridval,  # valve ID value
                                                         c_int32(self.valve.pwm_low_inlet),  # valve inlet
-                                                        1  # valve rotation direction (1 for clockwise)
+                                                        # 1  # valve rotation direction (1 for clockwise)
+                                                        0  # valve rotation direction (0 for shortest)
                                                         )
+                    # record valve error in the log, if any
                     if (valve_error_msg != 0):
-                        print('Valve error: %d' % valve_error_msg)
-                        exit(1)
+                        with open(self.valve.error_logfilepath, 'a') as file:
+                            file.write('Valve error ' + str(valve_error_msg) +
+                                       ' at t = ' + str(time.time() - self.cc_start_time) + ' s\n')
+
                     self.valve.inlet = self.valve.pwm_low_inlet    # no lock as accessed only by thisn thread
 
 
@@ -1568,6 +1596,9 @@ class OB1_manager:
                         if (user_cmd == 2):  # 2 for launching the valve script
                             # record the time at which the script was launched
                             script_launch_time = time.time()
+                            # indicate that the script is now running
+                            with self.lock:
+                                self.valve.script_running = True
                             # start counting the scripted commands
                             script_cmd_cntr = 0
                             # get the next command from the script and the time of its execution
@@ -1632,9 +1663,12 @@ class OB1_manager:
                                                             c_int32(self.valve.inlet),  # valve inlet
                                                             0  # valve rotation direction (zero for shortest)
                                                             )
+                        # record valve error in the log, if any
                         if (valve_error_msg != 0):
-                            print('Valve error: %d' % valve_error_msg)
-                            exit(1)
+                            with open(self.valve.error_logfilepath, 'a') as file:
+                                file.write('Valve error ' + str(valve_error_msg) +
+                                           ' at t = ' + str(time.time() - self.cc_start_time) + ' s\n')
+
                         # get the next command in the script
                         scripted_cmd_cntr += 1
                         if (scripted_cmd_cntr == num_scripted_cmds):
@@ -1698,6 +1732,9 @@ class OB1_manager:
                         if (user_cmd == 2):  # 2 for launching the valve script
                             # record the time at which the script was launched
                             script_launch_time = time.time()
+                            # indicate that the script is now running
+                            with self.lock:
+                                self.valve.script_running = True
                             # start counting the scripted commands
                             script_cmd_cntr = 0
                             # get the next command from the script and the time of its execution
@@ -1764,11 +1801,15 @@ class OB1_manager:
                     # now, actually switch the valve to the high state
                     valve_error_msg = MUX_DRI_Set_Valve(self.valve.instridval,  # valve ID value
                                                         c_int32(self.valve.pwm_high_inlet),  # valve inlet
-                                                        2  # valve rotation direction (2 for counterclockwise)
+                                                        # 2  # valve rotation direction (2 for counterclockwise)
+                                                        0  # valve rotation direction (0 for shortest)
                                                         )
+                    # record valve error in the log, if any
                     if (valve_error_msg != 0):
-                        print('Valve error: %d' % valve_error_msg)
-                        exit(1)
+                        with open(self.valve.error_logfilepath, 'a') as file:
+                            file.write('Valve error ' + str(valve_error_msg) +
+                                       ' at t = ' + str(time.time() - self.cc_start_time) + ' s\n')
+
                     self.valve.inlet = self.valve.pwm_high_inlet  # no lock as accessed only by thisn thread
 
 
@@ -1776,11 +1817,15 @@ class OB1_manager:
                 elif (next_action == 2):
                     valve_error_msg = MUX_DRI_Set_Valve(self.valve.instridval,  # valve ID value
                                                         c_int32(self.valve.pwm_low_inlet),  # valve inlet
-                                                        1  # valve rotation direction (1 for clockwise)
+                                                        # 1  # valve rotation direction (1 for clockwise)
+                                                        0  # valve rotation direction (0 for shortest)
                                                         )
+                    # record valve error in the log, if any
                     if (valve_error_msg != 0):
-                        print('Valve error: %d' % valve_error_msg)
-                        exit(1)
+                        with open(self.valve.error_logfilepath, 'a') as file:
+                            file.write('Valve error ' + str(valve_error_msg) +
+                                       ' at t = ' + str(time.time() - self.cc_start_time) + ' s\n')
+
                     self.valve.inlet = self.valve.pwm_low_inlet  # no lock as accessed only by thisn thread
 
 
@@ -2503,6 +2548,7 @@ class valve_manager:
 
         # valve data log file path (initialised with an empty string, then updated according to the user input)
         self.logfilepath =''
+        self.error_logfilepath=''
         
         # valve mode set inlets ('set') or PWM ('pwm')
         # or scripted versions thereof ('_scripted') suffix added
@@ -2539,6 +2585,7 @@ class valve_manager:
         # program for the valve set by the script
         self.scripted_cmd_times = np.array([])
         self.scripted_cmds = np.array([]) # scripted inlets for set_scripted or input concs. for pwm_scripted
+        self.script_running = False # indicator of whether the script is running
 
         return
 
