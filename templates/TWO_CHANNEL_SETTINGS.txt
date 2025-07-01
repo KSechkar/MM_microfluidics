@@ -8,8 +8,8 @@ CHANNEL 1
 FLOW CONTROLLER
 ref_flow = 42.0 ul/min
 p_gain = 0.05
-i_gain = 0.05
-d_gain = 0.04
+i_gain = 0.075
+d_gain = 0.05
 min_flerrint = -8000.0
 max_flerrint = 8000.0
 min_press_ctrl = 0.0 mbar
@@ -24,8 +24,8 @@ CHANNEL 2
 FLOW CONTROLLER
 ref_flow = 42.0 ul/min
 p_gain = 0.05
-i_gain = 0.05
-d_gain = 0.04
+i_gain = 0.075
+d_gain = 0.05
 min_flerrint = -8000.0
 max_flerrint = 8000.0
 min_press_ctrl = 0.0 mbar

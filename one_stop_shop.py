@@ -1,7 +1,7 @@
 # VALVE_EXPERIMENT.PY
 # Run a mother machine experiment with a single channel CONNECTED TO A MUX DISTRIBUTOR VALVE
 
-EMULATING = False
+EMULATING = True
 
 # IMPORTS --------------------------------------------------------------------------------------------------------------
 # PYTHON PACKAGES
@@ -28,6 +28,25 @@ if not(EMULATING):
 else:
     from emulator import *
     matplotlib.use('tkagg')
+
+def get_valid_input_float(prompt: str) -> float:
+    while True:
+        try:
+            x = input(prompt)
+            return float(x)
+        except ValueError:
+            print(f"{x} is not valid, must be parseable to a float. Try again!")
+
+def get_valid_input_int(prompt: str, allowed:list[int]|None = None) -> int:
+    while True:
+        try:
+            x = input(prompt)
+            if (allowed is not None) and (x not in allowed):
+                print(f"{x} is not in {allowed}")
+                continue
+            return int(x)
+        except ValueError:
+            print(f"{x} is not valid, must be parseable to an int. Try again!")
 
 # OB-1 MANAGER CLASS ---------------------------------------------------------------------------------------------------
 class OB1_manager:
@@ -61,7 +80,7 @@ class OB1_manager:
             if (ch2_in_use == 'yes'):
                 self.channels[1].in_use=True
             valve_in_use = input('Are you using a VALVE? (yes, no) : ')
-            if(valve_in_use):
+            if(valve_in_use == 'yes'):
                 self.valve.in_use = True
 
             # specify that the OB-1-computer interaction settings are yet to be specified
@@ -163,8 +182,8 @@ class OB1_manager:
 
         print('\nSET OB1-COMPUTER INTERACTION PREFERENCES')  # ---------------------------------------------------------
         if (interactions_still_todo):
-            self.dt_check = float(input('dt_check: how often you want to check on the OB-1 (seconds) : '))
-            self.dt_log = float(input('dt_log: how often you want to log OB-1 data (seconds) : '))
+            self.dt_check = get_valid_input_float('dt_check: how often you want to check on the OB-1 (seconds) : ')
+            self.dt_log = get_valid_input_float('dt_log: how often you want to log OB-1 data (seconds) : ')
             short_term_memo_dur = float(
                 input('short_term_memo_dur: how long you want to keep ALL most recent OB-1 data in memory (seconds) : '))
             # convert from logging and remembering times to number of data points
@@ -180,16 +199,16 @@ class OB1_manager:
             if(ch.in_use):
                 print('Set up the controller for CHANNEL ' + str(ch.id))
                 if(ch.still_todo['FLOW CONTROLLER']):
-                    ch.ref_flow = float(input('Specify the reference flow rate (ul/min) : '))
-                    ch.p_gain = float(input('Specify the flow controller\'s P gain : '))
-                    ch.i_gain = float(input('Specify the flow controller\'s I gain : '))
-                    ch.d_gain = float(input('Specify the flow controller\'s D gain : '))
-                    ch.min_flerrint = float(input('Input error integral lower bound for anti-windup (uL) : '))
-                    ch.max_flerrint = float(input('Input error integral upper bound for anti-windup (uL) : '))
+                    ch.ref_flow = get_valid_input_float('Specify the reference flow rate (ul/min) : ')
+                    ch.p_gain = get_valid_input_float('Specify the flow controller\'s P gain : ')
+                    ch.i_gain = get_valid_input_float('Specify the flow controller\'s I gain : ')
+                    ch.d_gain = get_valid_input_float('Specify the flow controller\'s D gain : ')
+                    ch.min_flerrint = get_valid_input_float('Input error integral lower bound for anti-windup (uL) : ')
+                    ch.max_flerrint = get_valid_input_float('Input error integral upper bound for anti-windup (uL) : ')
                     set_p_bounds = input('Would you like to set non-default bounds on pressure? (yes, no) : ')
                     if(set_p_bounds=='yes'):
-                        ch.min_press_ctrl = float(input('Specify the minimum pressure control bound (mbar) : '))
-                        ch.max_p_ctrl = float(input('Specify the maximum pressure control bound (mbar) : '))
+                        ch.min_press_ctrl = get_valid_input_float('Specify the minimum pressure control bound (mbar) : ')
+                        ch.max_p_ctrl = get_valid_input_float('Specify the maximum pressure control bound (mbar) : ')
                     else:
                         # if bounds are not specified, set them to default, i.e. physically possible values
                         ch.min_press_ctrl = 0.0
@@ -233,8 +252,8 @@ class OB1_manager:
             # set up valve preferences
             # VALVE-COMPUTER INTERACTIONS
             if(self.valve.still_todo['INTERACTIONS']):
-                self.valve.dt_check = float(input('valve_dt_check: how often you want the computer to check on the VALVE (seconds) : '))
-                self.valve.dt_log = float(input('valve_dt_log: how often you want to log VALVE data (seconds) : '))
+                self.valve.dt_check = get_valid_input_float('valve_dt_check: how often you want the computer to check on the VALVE (seconds) : ')
+                self.valve.dt_log = get_valid_input_float('valve_dt_log: how often you want to log VALVE data (seconds) : ')
                 self.valve.short_term_memo_dur = float(
                     input('valve_short_term_memo_dur: how long you want to keep ALL most recent VALVE data in memory (seconds) : '))
                 # convert from logging and remembering times to number of data points
@@ -247,8 +266,8 @@ class OB1_manager:
                 inlet_cntr = 1
                 inlet_concs = []
                 while (True):
-                    user_defined_conc = float(input('COI conc in inlet ' + str(inlet_cntr) +
-                                                    '? (-1 to stop entering): '))
+                    user_defined_conc = get_valid_input_float('COI conc in inlet ' + str(inlet_cntr) +
+                                                    '? (-1 to stop entering): ')
                     if (user_defined_conc == -1):
                         break
                     inlet_concs.append(user_defined_conc)
@@ -256,12 +275,12 @@ class OB1_manager:
                 self.valve.inlet_concs = np.array(inlet_concs)
                 # set inlet settings
                 if(self.valve.mode=='set' or self.valve.mode=='set_scripted'):
-                    self.valve.inlet = int(input('starting_inlet: specify the starting inlet : '))
+                    self.valve.inlet = get_valid_input_int('starting_inlet: specify the starting inlet : ', list(range(1, len(self.valve.inlet_concs)+1)))
                     self.valve.input_conc = self.valve.inlet_concs[self.valve.inlet-1]
                 # pwm settings
                 elif(self.valve.mode=='pwm' or self.valve.mode=='pwm_scripted'):
-                    self.valve.pwm_period = float(input('pwm_period: the PWM period (seconds) : '))
-                    self.valve.input_conc = float(input('starting_conc: the starting conc. : '))
+                    self.valve.pwm_period = get_valid_input_float('pwm_period: the PWM period (seconds) : ')
+                    self.valve.input_conc = get_valid_input_float('starting_conc: the starting conc. : ')
                     self.valve.pwm_update_controls()    # update the valve controls for the selected input conc
 
             # set the inlet back to the starting one (NOTE: both if setting chosen manually and if loaded)
@@ -836,7 +855,7 @@ class OB1_manager:
                 print('Error: at least one condition must be specified')
                 continue
 
-            safeguard_time = float(input('For how long must the condition be true to trigger the cutoff (seconds) : '))
+            safeguard_time = get_valid_input_float('For how long must the condition be true to trigger the cutoff (seconds) : ')
             safeguard_check_steps.append(
                 int(safeguard_time / self.dt_check)+1)  # convert to number of data points in short-term memory
             if (safeguard_check_steps[-1] > self.short_term_memo_size):
@@ -977,7 +996,7 @@ class OB1_manager:
         if(not self.valve.in_use):
             for ch in self.channels:
                 if(ch.in_use):
-                    ch.medstart = float(input('How much medium is there in the CHANNEL '+str(ch.id)+' source (ml)? : '))
+                    ch.medstart = get_valid_input_float('How much medium is there in the CHANNEL '+str(ch.id)+' source (ml)? : ')
         else:
             for ch in self.channels:
                 ch.medstart = 0.0
@@ -1044,6 +1063,11 @@ class OB1_manager:
         cc_check_cntr = 0 # counter for how many times the computer has checked on the OB-1
 
         while self.doing_cruise_control:
+            # NO MEDIA CHANGES BY DEFAULT
+            for ch in self.channels:
+                if (ch.in_use):
+                    ch.medleft_new = -1
+
             # HANDLE THE USER INPUT, IF ANY
             try:
                 # get the user command and the argument
@@ -1106,10 +1130,6 @@ class OB1_manager:
                         self.print_queue.put('Integral controller memory set to zero')
             except:
                 pass
-
-            for ch in self.channels:
-                if (ch.in_use):
-                    ch.medleft_new = -1
 
             # GET READINGS FROM THE OB-1
             # get the time of measurement
@@ -1292,22 +1312,37 @@ class OB1_manager:
                                          0, 0, 0))   # args: irrelevant for cmd 0
                 break
             elif(user_cmd=='set_ref_flow'):  # set the reference flow
-                ch_id = float(input("Specify the channel (1,2) : "))
-                ref_flow = float(input("Specify the reference flow (ul/min) : "))
+                if(self.channels[0].in_use and (not self.channels[1].in_use)):
+                    ch_id=1
+                elif((not self.channels[0].in_use) and self.channels[1].in_use):
+                    ch_id=2
+                else:
+                    ch_id = get_valid_input_int("Specify the channel (1,2) : ")
+                ref_flow = get_valid_input_float("Specify the reference flow (ul/min) : ")
                 self.user_cmd_queue.put((1,                 # command code: 1 for setting a new reference flow
                                          ch_id,             # channel
                                          ref_flow, 0, 0))   # args: zeroth is the new ref flow, others irrelevant
             elif (user_cmd == 'set_const_press'):  # set a constant pressure
-                ch_id = float(input("Specify the channel (1,2) : "))
-                const_press = float(input("Specify the constant pressure (mbar) : "))
+                if (self.channels[0].in_use and (not self.channels[1].in_use)):
+                    ch_id = 1
+                elif ((not self.channels[0].in_use) and self.channels[1].in_use):
+                    ch_id = 2
+                else:
+                    ch_id = get_valid_input_int("Specify the channel (1,2) : ")
+                const_press = get_valid_input_float("Specify the constant pressure (mbar) : ")
                 self.user_cmd_queue.put((2,  # command code: 2 for setting a constant pressure
                                          ch_id,     # channel
                                          const_press, 0, 0))
             elif(user_cmd=='set_gains'):  # set the PI(D?) gains
-                ch_id = float(input("Specify the channel (1,2) : "))
-                p_gain = float(input("Specify the new P gain : "))
-                i_gain = float(input("Specify the new I gain : "))
-                d_gain = float(input("Specify the new D gain : "))
+                if (self.channels[0].in_use and (not self.channels[1].in_use)):
+                    ch_id = 1
+                elif ((not self.channels[0].in_use) and self.channels[1].in_use):
+                    ch_id = 2
+                else:
+                    ch_id = get_valid_input_int("Specify the channel (1,2) : ")
+                p_gain = get_valid_input_float("Specify the new P gain : ")
+                i_gain = get_valid_input_float("Specify the new I gain : ")
+                d_gain = get_valid_input_float("Specify the new D gain : ")
                 self.user_cmd_queue.put((3,                 # command code: 3 for changing the PI(D?) gains
                                          ch_id,             # channel
                                          # args
@@ -1319,26 +1354,37 @@ class OB1_manager:
                                          0, # channel: irrelevant for cmd 4
                                          0, 0, 0))  # args: irrelevant for cmd 4
             elif(user_cmd=='change_medium'):
-                ch_id = float(input("Specify the channel (1,2) : "))
-                medleft_new = float(input("Specify the new starting medium volume (ml): "))
+                if (self.channels[0].in_use and (not self.channels[1].in_use)):
+                    ch_id = 1
+                elif ((not self.channels[0].in_use) and self.channels[1].in_use):
+                    ch_id = 2
+                else:
+                    ch_id = get_valid_input_int("Specify the channel (1,2) : ")
+                medleft_new = get_valid_input_float("Specify the new starting medium volume (ml): ")
+                print(medleft_new)
                 self.user_cmd_queue.put((5,  # command code: 5 for changing the medium source
                                          ch_id, # channel
                                          # args
                                          medleft_new, 0, 0))
             elif (user_cmd == 'purge_integ'):
-                ch_id = float(input("Specify the channel (1,2) : "))
+                if (self.channels[0].in_use and (not self.channels[1].in_use)):
+                    ch_id = 1
+                elif ((not self.channels[0].in_use) and self.channels[1].in_use):
+                    ch_id = 2
+                else:
+                    ch_id = get_valid_input_int("Specify the channel (1,2) : ")
                 self.user_cmd_queue.put((6,  # command code: 5 for purging the integral controller memory
                                          ch_id,  # channel
                                          # args
                                          0, 0, 0))
             # VALVE COMMANDS -------------------------------------------------------------------------------------
             elif(user_cmd=='set_valve_inlet'):
-                new_inlet = int(input("Specify the inlet : "))
+                new_inlet = get_valid_input_int("Specify the inlet : ")
                 self.user_valve_cmd_queue.put((0,   # command code: 0 for changing the valve inlet
                                                # args
                                                new_inlet, 0, 0))
             elif (user_cmd == 'set_input_conc'):
-                new_input_conc = float(input("Specify the PWM input conc. : "))
+                new_input_conc = get_valid_input_float("Specify the PWM input conc. : ")
                 self.user_valve_cmd_queue.put((1,  # command code: 1 for changing the PWM input conc.
                                                # args
                                                new_input_conc, 0, 0))
@@ -2441,11 +2487,17 @@ class OB1_manager:
                  ):
         # read the OB-1 log file
         OB1_log_df = pd.read_csv(OB1_logfilename, na_values='N/A')   # get the dataframe from csv
-        # read the valve log file
-        valve_log_df = pd.read_csv(valve_logfilename, na_values='N/A')
+        # read the valve log file (if not in use, just return a None)
+        if(self.valve.in_use):
+            valve_log_df = pd.read_csv(valve_logfilename, na_values='N/A')
+        else:
+            valve_log_df = None
 
         # get the data for time, pressure, flow
-        log_time = [OB1_log_df['Time (s)'].to_numpy(), OB1_log_df['Time (s)'].to_numpy(), valve_log_df['Time (s)'].to_numpy()]
+        if(self.valve.in_use):
+            log_time = [OB1_log_df['Time (s)'].to_numpy(), OB1_log_df['Time (s)'].to_numpy(), valve_log_df['Time (s)'].to_numpy()]
+        else:
+            log_time = [OB1_log_df['Time (s)'].to_numpy(), OB1_log_df['Time (s)'].to_numpy(), [None]]
         log_p = [OB1_log_df['CH 1 Pressure (mbar)'].to_numpy(), OB1_log_df['CH 2 Pressure (mbar)'].to_numpy()]
         log_flow = [OB1_log_df['CH 1 Flow (ul/min)'].to_numpy(), OB1_log_df['CH 2 Flow (ul/min)'].to_numpy()]
         # get the data for medium left in the source
@@ -2458,9 +2510,13 @@ class OB1_manager:
         log_gains={'P': [OB1_log_df['CH 1 P gain'].to_numpy(), OB1_log_df['CH 2 P gain'].to_numpy()],
                    'I': [OB1_log_df['CH 1 I gain'].to_numpy(), OB1_log_df['CH 2 I gain'].to_numpy()],
                    'D': [OB1_log_df['CH 1 D gain'].to_numpy(), OB1_log_df['CH 2 D gain'].to_numpy()]}
-        # get the data for the valve
-        log_valve_inlets=valve_log_df['Valve inlet']
-        log_valve_input_concs=valve_log_df['Valve input conc.']
+        # get the data for the valve (if not in use, just return a None)
+        if (self.valve.in_use):
+            log_valve_inlets = valve_log_df['Valve inlet']
+            log_valve_input_concs = valve_log_df['Valve input conc.']
+        else:
+            log_valve_inlets = [None]
+            log_valve_input_concs = [None]
 
         # plot the data
         self.plot_cc_data(data_time=log_time, data_p=log_p, data_flow=log_flow,
