@@ -1,7 +1,7 @@
 # VALVE_EXPERIMENT.PY
 # Run a mother machine experiment with a single channel CONNECTED TO A MUX DISTRIBUTOR VALVE
 
-EMULATING = False
+EMULATING = True
 
 # IMPORTS --------------------------------------------------------------------------------------------------------------
 # PYTHON PACKAGES
