@@ -1,7 +1,7 @@
 # VALVE_EXPERIMENT.PY
 # Run a mother machine experiment with a single channel CONNECTED TO A MUX DISTRIBUTOR VALVE
 
-EMULATING = False
+EMULATING = True
 
 # IMPORTS --------------------------------------------------------------------------------------------------------------
 # PYTHON PACKAGES
@@ -1023,8 +1023,11 @@ class OB1_manager:
             with(open(self.valve.logfilepath, 'w', newline='')) as logfile:
                 logwriter = csv.writer(logfile)
                 row = ['Time (s)']
-                valve_entries = ['Valve inlet', 'Valve input conc.', 'Valve duty cycle',
-                                 'PWM low inlet', 'PWM high inlet']
+                valve_entries = ['Valve inlet', 'Valve input conc.']
+                if (self.valve.mode == 'pwm' or self.valve.mode == 'pwm_scripted'):
+                    valve_entries.append('Valve duty cycle')
+                    valve_entries.append('PWM low inlet')
+                    valve_entries.append('PWM high inlet')
                 if(self.valve.mode=='set_scripted' or self.valve.mode=='pwm_scripted'):
                     valve_entries.append('Time since script launch (s)')
                 for row_entry in valve_entries:
