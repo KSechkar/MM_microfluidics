@@ -34,7 +34,7 @@ def main():
     # initialise the valve
     valve_instrid = c_int32()
     print('Adding the VALVE...')
-    valve_error_msg = MUX_DRI_Initialization("ASRL4::INSTR".encode('ascii'),
+    valve_error_msg = MUX_DRI_Initialization("ASRL3::INSTR".encode('ascii'),
                                              byref(valve_instrid))
     if (valve_error_msg != 0):
         print('Valve addition error: %d' % valve_error_msg)

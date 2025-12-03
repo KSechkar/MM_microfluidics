@@ -1,7 +1,7 @@
 # VALVE_EXPERIMENT.PY
 # Run a mother machine experiment with a single channel CONNECTED TO A MUX DISTRIBUTOR VALVE
 
-EMULATING = True
+EMULATING = False
 
 # IMPORTS --------------------------------------------------------------------------------------------------------------
 # PYTHON PACKAGES
@@ -231,10 +231,10 @@ class OB1_manager:
             # load the valve
             self.valve.instrid = c_int32()
             print('Adding the VALVE...')
-            valve_error_msg = MUX_DRI_Initialization("ASRL4::INSTR".encode('ascii'),
+            valve_error_msg = MUX_DRI_Initialization("ASRL3::INSTR".encode('ascii'),
                                                      byref(self.valve.instrid))
             if (valve_error_msg != 0):
-                print('Valve addition error: %d' % ob1_error_msg)
+                print('Valve addition error: %d' % valve_error_msg)
                 exit(1)
             # get the valve ID value
             self.valve.instridval = self.valve.instrid.value
