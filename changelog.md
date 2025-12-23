@@ -10,6 +10,11 @@ Long-term
   - To load calibration upon commands from the microscope computer (?)
     - May be hard due to the ESI API being bad
 
+## Release notes 23 Dec 2025 (intermediate)
+- !!!! To do on the actual New Hope controller PC: edit all templates, see what ASRL the recirculator really is, turn off emulation
+- Added recirculator valve control in scipted and manual modes
+- Improved log plotting
+
 ## Release notes 14 Jun 2025
 
 - Added an emulator script for development without connected to a real OB-1 on a PC with NIMAX installed

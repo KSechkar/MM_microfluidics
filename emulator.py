@@ -8,6 +8,10 @@ import tkinter.filedialog
 
 import numpy as np
 
+# DEVICE NAMES AND PORTS - CHECK ON NIMAX IF GETTING INITIALISATION ERRORS ---------------------------------------------
+OB1_NAME = '0204CC5D'
+VALVE_PORT ='ASRL3::INSTR'
+RECIRC_PORT = 'ASRL0::INSTR' # TO BE CORRECTED!!
 
 # EMULATED OB1 CLASS DEFINITION ----------------------------------------------------------------------------
 # an object of this class stores the channel pressures
@@ -60,7 +64,7 @@ OB1_em.set_resistances([emulator_res, emulator_res])
 # in the emulator, just set the OB-1 name string and reference
 def OB1_Initialization(
         # OB-1 self.OB1's serial number (check by running NIMAX)
-        Device_Name='0204CC5D'.encode('ascii'),
+        Device_Name=OB1_NAME.encode('ascii'),
         # Types of channels 1,2,3,4 respectively - WE HAVE JUST TWO CHANNELS, BOTH TYPE 2 (0-2000 MBAR)
         reg_ch_1=2,
         reg_ch_2=2,
@@ -357,6 +361,9 @@ class emulated_valve:
         # valve reference
         self.MUX_DRI_ID = None
 
+        # valve id value
+        self.instridval = None
+
         # which inlet the valve is currently set to
         self.inlet = -1
 
@@ -375,6 +382,40 @@ class emulated_valve:
 # INITIALISING THE VALVE EMULATOR -------------------------------------------------------------------------------
 valve_em = emulated_valve()
 
+# EMULATED RECIRCULATION VALVE CLASS DEFINITION ----------------------------------------------------------------------------
+# an object of this class stores the channel pressures
+# and the resistance of the setup
+class emulated_recirc:
+    # initialise the object with 'None's and '-1's in the fields
+    def __init__(self):
+        # valve name string
+        self.Device_Name = 'emulated_recirc'.encode('ascii')
+
+        # valve reference
+        self.MUX_DRI_ID = None
+
+        # recirculator id value
+        self.instridval = None
+
+        # which state the recirculator is currently set to
+        self.state = -1
+
+        return
+
+    # find the currently set recirculation valve state
+    def get_state(self):
+        return self.state
+
+    # set the valve inlet
+    def set_state(self, state):
+        self.state = state
+        return
+
+
+# INITIALISING THE RECIRCULATOR EMULATOR -------------------------------------------------------------------------------
+recirc_em = emulated_recirc()
+
+
 # DEFINITIONS OF SDK FUNCTION ANALOGUES FOR THE MUX DISTRIBUTOR VALVE --------------------------------------------------
 # initiate the valve device
 def MUX_DRI_Initialization(
@@ -383,13 +424,26 @@ def MUX_DRI_Initialization(
         # reference assigned to the valve
         MUX_DRI_ID_out=byref(c_int32())
 ):
-    # in the emulator, just
-    valve_em.MUX_DRI_ID = MUX_DRI_ID_out
+    # see if we're adding a valve or a recirculator, act accordingly
+    if(Visa_COM == VALVE_PORT.encode('ascii')):
+        valve_em.MUX_DRI_ID = MUX_DRI_ID_out
 
-    # define error message
-    # TBD: make it consistent with the SDK manual. For now, always 0 (all OK)
-    valve_error_msg = 0
-    return valve_error_msg
+        # define error message
+        # TBD: make it consistent with the SDK manual. For now, always 0 (all OK)
+        valve_error_msg = 0
+        return valve_error_msg
+
+    elif(Visa_COM == RECIRC_PORT.encode('ascii')):
+        recirc_em.MUX_DRI_ID = MUX_DRI_ID_out
+
+        # define error message
+        # TBD: make it consistent with the SDK manual. For now, always 0 (all OK)
+        recirc_error_msg = 0
+        return recirc_error_msg
+
+    else:
+        print('Invalid MUX DRI port name')
+        return -1
 
 # destroy communications with the valve
 # in the emulator, do nothing
@@ -399,9 +453,9 @@ def MUX_DRI_Destructor(
 ):
     # define error message
     # TBD: make it consistent with the SDK manual. For now, always 0 (all OK)
-    valve_error_msg = 0
+    error_msg = 0
 
-    return valve_error_msg
+    return error_msg
 
 
 # send an action command to the valve: 0 to home the valve, 1 to get the valve's serial number
@@ -417,8 +471,8 @@ def MUX_DRI_Send_Command(
 ):
     # homing the valve if getting command 0 - set to inlet 1 in the emulator
     if(action == 0):
-        # set to inlet 0 and get the corresponding error message
-        valve_error_msg = MUX_DRI_Set_Valve(MUX_DRI_ID_in,  # valve ID value
+        # set to inlet 1 and get the corresponding error message
+        error_msg = MUX_DRI_Set_Valve(MUX_DRI_ID_in,  # valve ID value
                                             c_int32(1),  # valve inlet
                                             0  # valve rotation direction (zero for shortest)
                                             )
@@ -430,13 +484,13 @@ def MUX_DRI_Send_Command(
             answer_array[i] = '0'
         # define error message
         # TBD: make it consistent with the SDK manual. For now, always 0 (all OK)
-        valve_error_msg = 0
+        error_msg = 0
     else:
         # define error message
         # TBD: make it consistent with the SDK manual. For now, always 0 (all OK)
-        valve_error_msg = 0
+        error_msg = 0
 
-    return valve_error_msg
+    return error_msg
 
 
 # get the valve inlet data
@@ -446,16 +500,34 @@ def MUX_DRI_Get_Valve(
         # where to write the data
         selected_Valve
 ):
-    # get readings
-    selected_Valve_ptr = cast(selected_Valve, POINTER(c_int32))
-    selected_Valve_ptr.contents.value = valve_em.get_inlet()
+    # determine if we're dealing with the valve (1) or the recirculator (2), act accordingly
+    if (MUX_DRI_ID_in == 1):
+        # get readings
+        selected_Valve_ptr = cast(selected_Valve, POINTER(c_int32))
+        selected_Valve_ptr.contents.value = valve_em.get_inlet()
 
-    # define error message
-    # TBD: make it consistent with the SDK manual. For now, always 0 (all OK)
-    valve_error_msg = 0
+        # define error message
+        # TBD: make it consistent with the SDK manual. For now, always 0 (all OK)
+        valve_error_msg = 0
 
-    # return error message
-    return valve_error_msg
+        # return error message
+        return valve_error_msg
+
+    elif (MUX_DRI_ID_in == 2):
+        # get readings
+        selected_Valve_ptr = cast(selected_Valve, POINTER(c_int32))
+        selected_Valve_ptr.contents.value = recirc_em.get_state()
+
+        # define error message
+        # TBD: make it consistent with the SDK manual. For now, always 0 (all OK)
+        recirc_error_msg = 0
+
+        # return error message
+        return recirc_error_msg
+
+    else:
+        print('Invalid MMUX_DRI_ID_in argument')
+        return -1
 
 
 # set the valve inlet
@@ -467,17 +539,36 @@ def MUX_DRI_Set_Valve(
         # valve rotation directions: 0 for the shortest, 1 for clockwise, 2 for anticlockwise - irrelevant in the emulator
         Z_MUX_DRI_Rotation
 ):
-    # set valve inlet - handling the cases when the selection is a Python int/float or a int32_t
-    if (isinstance(selected_Valve, (int, float))):
-        valve_em.set_inlet(selected_Valve)
+    # determine if we're dealing with the valve or the recirculator, act accordingly
+    if (MUX_DRI_ID_in == 1):
+        # set valve inlet - handling the cases when the selection is a Python int/float or a int32_t
+        if (isinstance(selected_Valve, (int, float))):
+            valve_em.set_inlet(selected_Valve)
+        else:
+            valve_em.set_inlet(selected_Valve.value)
+
+        # define error message
+        # TBD: make it consistent with the SDK manual. For now, always 0 (all OK)
+        valve_error_msg = 0
+
+        return valve_error_msg
+
+    elif (MUX_DRI_ID_in == 2):
+        # set valve inlet - handling the cases when the selection is a Python int/float or a int32_t
+        if (isinstance(selected_Valve, (int, float))):
+            recirc_em.set_state(selected_Valve)
+        else:
+            recirc_em.set_state(selected_Valve.value)
+
+        # define error message
+        # TBD: make it consistent with the SDK manual. For now, always 0 (all OK)
+        valve_error_msg = 0
+
+        return valve_error_msg
+
     else:
-        valve_em.set_inlet(selected_Valve.value)
-
-    # define error message
-    # TBD: make it consistent with the SDK manual. For now, always 0 (all OK)
-    valve_error_msg = 0
-
-    return valve_error_msg
+        print('Invalid MUX_DRI_ID_in argument')
+        return -1
 
 
 # CONSTANTS SIGNIFYING VALVE COMMANDS ----------------------------------------------------------------------------------

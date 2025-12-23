@@ -1,7 +1,12 @@
-# VALVE_EXPERIMENT.PY
-# Run a mother machine experiment with a single channel CONNECTED TO A MUX DISTRIBUTOR VALVE
+# ONE_STOP_SHOP.PY
+# For running all microfluidic experiments
 
-EMULATING = False
+EMULATING = True
+
+# DEVICE NAMES AND PORTS - CHECK ON NIMAX IF GETTING INITIALISATION ERRORS ---------------------------------------------
+OB1_NAME = '0204CC5D'
+VALVE_PORT ='ASRL3::INSTR'
+RECIRC_PORT = 'ASRL0::INSTR' # TO BE CORRECTED!!
 
 # IMPORTS --------------------------------------------------------------------------------------------------------------
 # PYTHON PACKAGES
@@ -60,6 +65,8 @@ class OB1_manager:
         ]
         # initialise MUX distribution valve
         self.valve=valve_manager()
+        # initialise the Recirculation valve
+        self.recirc=recirc_manager()
 
         from_file = input('Do you want to load settings from a saved file? (yes, no) : ')
         if (from_file == 'yes'):
@@ -79,9 +86,12 @@ class OB1_manager:
             ch2_in_use = input('Is CHANNEL 2 in use? (yes, no) : ')
             if (ch2_in_use == 'yes'):
                 self.channels[1].in_use=True
-            valve_in_use = input('Are you using a VALVE? (yes, no) : ')
+            valve_in_use = input('Are you using a DISTRIBUTION VALVE? (yes, no) : ')
             if(valve_in_use == 'yes'):
                 self.valve.in_use = True
+            recirc_in_use = input('Are you using a RECIRCULATION VALVE? (yes, no) : ')
+            if (recirc_in_use == 'yes'):
+                self.recirc.in_use = True
 
             # specify that the OB-1-computer interaction settings are yet to be specified
             interactions_still_todo = True
@@ -93,11 +103,15 @@ class OB1_manager:
             if (self.valve.in_use):
                 self.valve.still_todo = {'INTERACTIONS': True,
                                  'OPERATIONS': True}
+            # specify if the settings for the valve need to be selected
+            if (self.recirc.in_use):
+                self.recirc.still_todo = {'INTERACTIONS': True,
+                                         'OPERATIONS': True}
 
         # print('\nSET UP THE OB-1')    # ----------------------------------------------------------------------------------
         print('Initialising OB-1...')
         self.OB1 = c_int32()
-        ob1_error_msg = OB1_Initialization('0204CC5D'.encode('ascii'),  # OB-1 self.OB1's serial number (check by running NIMAX)
+        ob1_error_msg = OB1_Initialization(OB1_NAME.encode('ascii'),  # OB-1 self.OB1's serial number (check by running NIMAX)
                                    2, 2, 0, 0,                  # Types of channels 1,2,3,4 respectively - WE HAVE JUST TWO CHANNELS, BOTH TYPE 2 (0-2000 MBAR)
                                    byref(self.OB1))               # reference assigned to the OB-1
         if (ob1_error_msg != 0):
@@ -226,20 +240,24 @@ class OB1_manager:
                 else:
                     print('(Loaded from file)')
 
-        print('\nSET UP THE VALVE') # ----------------------------------------------------------------------------------
+        print('\nSET UP THE DISTRIBUTION VALVE') # ----------------------------------------------------------------------------------
         if(self.valve.in_use):
             # load the valve
             self.valve.instrid = c_int32()
             print('Adding the VALVE...')
-            valve_error_msg = MUX_DRI_Initialization("ASRL3::INSTR".encode('ascii'),
+            valve_error_msg = MUX_DRI_Initialization(VALVE_PORT.encode('ascii'),
                                                      byref(self.valve.instrid))
             if (valve_error_msg != 0):
                 print('Valve addition error: %d' % valve_error_msg)
                 exit(1)
             # get the valve ID value
             self.valve.instridval = self.valve.instrid.value
+            # if EMULATING, overried with the ID 1 for the Python dummy script to work
+            if(EMULATING):
+                self.valve.instridval = 1
             # home the valve (necessary step for our MUX Distribtuion valve)
             answer=(c_char * 10)()
+
             valve_error_msg = MUX_DRI_Send_Command(self.valve.instridval,  # valve ID value
                                                    0, # valve action: o for 'home the valve'
                                                    answer,  # char array for the answer - irrelevant here (needed to get a serial number)
@@ -299,6 +317,71 @@ class OB1_manager:
         else:
             print('(Valve not in use)')
 
+        print('\nSET UP THE RECIRCULATION VALVE') # ----------------------------------------------------------------------------------
+        if(self.recirc.in_use):
+            # load the recirculator
+            self.recirc.instrid = c_int32()
+            print('Adding the RECIRCULATOR...')
+            recirc_error_msg = MUX_DRI_Initialization(RECIRC_PORT.encode('ascii'),
+                                                     byref(self.recirc.instrid))
+            if (recirc_error_msg != 0):
+                print('Recirculator addition error: %d' % recirc_error_msg)
+                exit(1)
+            # get the recirculator ID value
+            self.recirc.instridval = self.recirc.instrid.value
+            # if EMULATING, overried with the ID 2 for the Python dummy script to work
+            if (EMULATING):
+                self.recirc.instridval = 2
+            # home the recirculator (necessary step for our MUX Recirculation valve)
+            answer=(c_char * 10)()
+            recirc_error_msg = MUX_DRI_Send_Command(self.recirc.instridval,  # recirc ID value
+                                                   0, # recirc action: 0 for 'home the valve'
+                                                   answer,  # char array for the answer - irrelevant here (needed to get a serial number)
+                                                   0    # length of the answer array - irrelevant here (needed to get a serial number)
+                                                   )
+            if (recirc_error_msg != 0):
+                print('Recirculator homing error: %d' % ob1_error_msg)
+                exit(1)
+
+            # set up recirculator preferences
+            # RECIRCULATOR-COMPUTER INTERACTIONS
+            if(self.recirc.still_todo['INTERACTIONS']):
+                self.recirc.dt_check = get_valid_input_float('recirc_dt_check: how often you want the computer to check on the RECIRCULATOR (seconds) : ')
+                self.recirc.dt_log = get_valid_input_float('recirc_dt_log: how often you want to log RECIRCULATOR data (seconds) : ')
+                self.recirc.short_term_memo_dur = float(
+                    input('recirc_short_term_memo_dur: how long you want to keep ALL most recent RECIRCULATOR data in memory (seconds) : '))
+                # convert from logging and remembering times to number of data points
+                self.recirc.log_every_points = int(self.recirc.dt_log / self.recirc.dt_check)
+
+            # RECIRCULATOR OPERATIONS
+            if(self.recirc.still_todo['OPERATIONS']):
+                self.recirc.mode = input('Specify the RECIRCULATOR mode (manual, scripted) : ')
+                # set inlet settings
+                while(True):
+                    state_A_or_B = input('starting_inlet: specify the starting state (A, B): ')
+                    if(state_A_or_B == 'A'):
+                        self.recirc.state = 1 # state A corresponds to the int 1
+                        break
+                    elif(state_A_or_B == 'B'):
+                        self.recirc.state = 2 # state B corresponds to the int 2
+                        break
+
+            # set the inlet back to the starting one (NOTE: both if setting chosen manually and if loaded)
+            recirc_error_msg = MUX_DRI_Set_Valve(self.recirc.instridval,  # valve ID value
+                                                c_int32(self.recirc.state),  # valve inlet
+                                                0  # valve rotation direction (zero for shortest)
+                                                )
+            if (recirc_error_msg != 0):
+                print('Recirculator error: %d' % recirc_error_msg)
+                exit(1)
+
+            # load the script if using one
+            if(self.recirc.mode == 'scripted'):
+                self.recirc.load_script()
+
+        else:
+            print('(Recirculator not in use)')
+
         print('\nFILL THE TUBING') # -----------------------------------------------------------------------------------
         for ch in self.channels:
             if (ch.in_use):
@@ -322,6 +405,8 @@ class OB1_manager:
         self.print_queue = queue.Queue()
         # create a queue of user commands for the valve
         self.user_valve_cmd_queue = queue.Queue()
+        # create a queue of user commands for the recirculator
+        self.user_recirc_cmd_queue = queue.Queue()
 
         # create a short term memory locker for safe live plotting
         self.lock = threading.Lock()
@@ -339,6 +424,9 @@ class OB1_manager:
         # create valve cruise control thread if it is in use
         if(self.valve.in_use):
             self.valve_thread = threading.Thread(target=self.cruise_control_valve, daemon=True)
+        # create recirculator cruise control thread if it is in use
+        if (self.recirc.in_use):
+            self.recirc_thread = threading.Thread(target=self.cruise_control_recirc, daemon=True)
 
         return
 
@@ -623,6 +711,57 @@ class OB1_manager:
 
                     # skip the 'END VALVE OPERATIONS' marker line
                     curr_line = next_meaningful_line(curr_line)
+
+                elif (lines[curr_line] == 'RECIRCULATOR\n'):
+                    curr_line = next_meaningful_line(curr_line)
+                    # check if the channel is in use
+                    if (lines[curr_line] == 'NOT IN USE\n'):
+                        # if not in use, skip the 'END RECIRCULATOR' line and proceed
+                        curr_line = next_meaningful_line(curr_line)
+                    else:
+                        # if in use, start setting the RECIRCULATOR up
+                        self.recirc.in_use = True
+                        self.recirc.still_todo = {'INTERACTIONS': True,
+                                                 'OPERATIONS': True}
+                        continue
+
+                elif (lines[curr_line] == 'RECIRCULATOR-COMPUTER INTERACTIONS\n'):
+                    self.recirc.still_todo['INTERACTIONS'] = False
+                    curr_line = next_meaningful_line(curr_line)
+                    # get the check time
+                    self.recirc.dt_check = float(lines[curr_line].split()[2])
+                    curr_line = next_meaningful_line(curr_line)
+                    # get the log time
+                    self.recirc.dt_log = float(lines[curr_line].split()[2])
+                    curr_line = next_meaningful_line(curr_line)
+                    # get the short-term memory time
+                    self.recirc.short_term_memo_dur = float(lines[curr_line].split()[2])
+                    curr_line = next_meaningful_line(curr_line)
+                    # convert from logging and remembering times to number of data points
+                    self.recirc.log_every_points = int(self.recirc.dt_log / self.recirc.dt_check)
+
+                    # skip the 'END RECIRCULATOR-COMPUTER INTERACTIONS' marker line
+                    curr_line = next_meaningful_line(curr_line)
+
+                elif (lines[curr_line] == 'RECIRCULATOR OPERATIONS\n'):
+                    self.recirc.still_todo['OPERATIONS'] = False
+                    curr_line = next_meaningful_line(curr_line)
+                    # get the recirculator mode
+                    self.recirc.mode = lines[curr_line].split()[2]
+                    curr_line = next_meaningful_line(curr_line)
+                    # get the starting inlet
+                    recirc_state_A_or_B  = lines[curr_line].split()[2]
+                    if (recirc_state_A_or_B  == 'A'):
+                        self.recirc.state = 1
+                    elif (recirc_state_A_or_B == 'B'):
+                        self.recirc.state = 2
+                    else:
+                        print('Error! Invalid recirculator state')
+                    curr_line = next_meaningful_line(curr_line)
+
+                    # skip the 'END RECIRCULATOR OPERATIONS' marker line
+                    curr_line = next_meaningful_line(curr_line)
+
                 else:
                     # if the line is not recognised, move to the next one
                     curr_line = next_meaningful_line(curr_line)
@@ -778,6 +917,10 @@ class OB1_manager:
         if (ob1_error_msg != 0):
             print('Pressure setting error: %d' % ob1_error_msg)
             exit(1)
+
+        # RECIRCULATOR
+        if(self.recirc.in_use):
+            print('Not sure what you\'re doing with your recirculator, but fill the tubing in the next, customary step if needed.\n')
 
         # ANY REMAINING TUBING
         fill_more = input('\nDo you need to fill more tubing? (yes, no) : ')
@@ -939,16 +1082,16 @@ class OB1_manager:
 
             # record valve settings
             file.write('VALVE\n')
-            if(not self.valve.in_use):
+            if (not self.valve.in_use):
                 file.write('NOT IN USE\n')
             else:
                 file.write('VALVE-COMPUTER INTERACTIONS\n')
                 # save the time between computer checks on the valve
-                file.write('valve_dt_check = '+str(self.valve.dt_check) + ' s\n')
+                file.write('valve_dt_check = ' + str(self.valve.dt_check) + ' s\n')
                 # save the logging time for the valve
-                file.write('valve_dt_log = '+str(self.valve.dt_log) + ' s\n')
+                file.write('valve_dt_log = ' + str(self.valve.dt_log) + ' s\n')
                 # save the short-term memory duration in seconds
-                file.write('valve_stmemo_dur = '+str(self.valve.short_term_memo_dur) + ' s\n')
+                file.write('valve_stmemo_dur = ' + str(self.valve.short_term_memo_dur) + ' s\n')
                 # finish the computer interactions block
                 file.write('END VALVE-COMPUTER INTERACTIONS\n\n')
 
@@ -958,7 +1101,7 @@ class OB1_manager:
                 # save the compound of interest concentrations in the valve inlets
                 inlet_concs_str = ''
                 for inlet_cntr in range(0, len(self.valve.inlet_concs)):
-                    if(inlet_cntr!=0):
+                    if (inlet_cntr != 0):
                         inlet_concs_str += ' '
                     inlet_concs_str += str(self.valve.inlet_concs[inlet_cntr])
                 file.write('inlet_concs = ' + inlet_concs_str + '\n')
@@ -975,13 +1118,40 @@ class OB1_manager:
                 file.write('END VALVE OPERATIONS\n')
                 # finish the valve block
                 file.write('END VALVE\n')
+
+            # record recirculator settings
+            file.write('RECIRCULATOR\n')
+            if (not self.recirc.in_use):
+                file.write('NOT IN USE\n')
+            else:
+                file.write('RECIRCULATOR-COMPUTER INTERACTIONS\n')
+                # save the time between computer checks on the recirculator
+                file.write('recirc_dt_check = ' + str(self.recirc.dt_check) + ' s\n')
+                # save the logging time for the recirculator
+                file.write('recirc_dt_log = ' + str(self.recirc.dt_log) + ' s\n')
+                # save the short-term memory duration in seconds
+                file.write('recirc_stmemo_dur = ' + str(self.recirc.short_term_memo_dur) + ' s\n')
+                # finish the computer interactions block
+                file.write('END RECIRCULATOR-COMPUTER INTERACTIONS\n\n')
+
+                file.write('RECIRCULATOR OPERATIONS\n')
+                # save the recirculator mode
+                file.write('mode = ' + str(self.recirc.mode) + '\n')
+                # save the starting state
+                file.write('starting_state = ' + 'AB'[self.recirc.state-1] + '\n')
+                # finish the operations block
+                file.write('END RECIRCULATOR OPERATIONS\n')
+                # finish the recirculator block
+                file.write('END RECIRCULATOR\n')
+
         return os.path.abspath(filename)
 
     # CRUISE CONTROL FUNCTIONS -----------------------------------------------------------------------------------------
     # main thread for cruise control of the microfluidic flow
     def cruise_control(self,
                        OB1_log_filename=r'logs/OB1_PID_log.csv',
-                       valve_log_filename=r'logs/valve_log.csv'):
+                       valve_log_filename=r'logs/valve_log.csv',
+                       recirc_log_filename=r'logs/recirc_log.csv',):
         # indicate that cruise control is being done
         self.doing_cruise_control = True
         self.open_live_plot = True  # open a live plot at first
@@ -991,6 +1161,9 @@ class OB1_manager:
         if(self.valve.in_use):
             self.valve.logfilepath = os.path.abspath(valve_log_filename)
             self.valve.error_logfilepath = os.path.abspath(valve_log_filename[:-4]+'_errors.txt')
+        if(self.recirc.in_use):
+            self.recirc.logfilepath = os.path.abspath(recirc_log_filename)
+            self.recirc.error_logfilepath = os.path.abspath(recirc_log_filename[:-4]+'_errors.txt')
 
         # ask how much medium there is in the source - IF VALVE NOT IN USE
         if(not self.valve.in_use):
@@ -1035,6 +1208,18 @@ class OB1_manager:
                 logwriter.writerow(row)
             with(open(self.valve.error_logfilepath, 'w', newline='')) as logfile:
                 logfile.write('VALVE ERROR LOG:\n')
+        if (self.recirc.in_use):
+            with(open(self.recirc.logfilepath, 'w', newline='')) as logfile:
+                logwriter = csv.writer(logfile)
+                row = ['Time (s)']
+                recirc_entries = ['Recirc. state']
+                if (self.recirc.mode == 'scripted'):
+                    recirc_entries.append('Time since script launch (s)')
+                for row_entry in recirc_entries:
+                    row.append(row_entry)
+                logwriter.writerow(row)
+            with(open(self.valve.error_logfilepath, 'w', newline='')) as logfile:
+                logfile.write('RECIRCULATOR ERROR LOG:\n')
 
         # start the threads
         self.threads_just_started = True
@@ -1043,6 +1228,8 @@ class OB1_manager:
         self.user_thread.start()
         if(self.valve.in_use):
             self.valve_thread.start()
+        if(self.recirc.in_use):
+            self.recirc_thread.start()
         self.threads_just_started = False
 
         # keep the main thread alive
@@ -1289,7 +1476,13 @@ class OB1_manager:
             cmds_on_offer += '; set_input_conc'
         elif((self.valve.mode == 'set_scripted' or self.valve.mode == 'pwm_scripted')
               and (not self.valve.script_running)):
-            cmds_on_offer += '; launch_script'
+            cmds_on_offer += '; launch_valve_script'
+        if (self.recirc.in_use):
+            if (self.recirc.mode == 'manual'):
+                cmds_on_offer += '; set_recirc_state'
+            elif(self.recirc.mode == 'scripted'):
+                cmds_on_offer += '; launch_recirc_script'
+
         cmds_on_offer += '; live_plot'
 
         while self.doing_cruise_control:
@@ -1391,8 +1584,26 @@ class OB1_manager:
                 self.user_valve_cmd_queue.put((1,  # command code: 1 for changing the PWM input conc.
                                                # args
                                                new_input_conc, 0, 0))
-            elif(user_cmd == 'launch_script'):
+            elif(user_cmd == 'launch_valve_script'):
                 self.user_valve_cmd_queue.put((2,  # command code: 2 for launching a script
+                                               # args
+                                               0, 0, 0))
+
+            # RECIRCULATOR COMMANDS -------------------------------------------------------------------------------------
+            elif (user_cmd == 'set_recirc_state'):
+                while(True):
+                    new_state_A_or_B = input("Specify the state (A,B): ")
+                    if(new_state_A_or_B == 'A'):
+                        new_state = 1
+                        break
+                    elif(new_state_A_or_B == 'B'):
+                        new_state = 2
+                        break
+                self.user_recirc_cmd_queue.put((0,  # command code: 0 for changing the recirculator inlet
+                                               # args
+                                               new_state, 0, 0))
+            elif (user_cmd == 'launch_recirc_script'):
+                self.user_recirc_cmd_queue.put((2,  # command code: 2 for launching a script; yes I know '1' is undefined, but I'm going fro consistency with the recirculator
                                                # args
                                                0, 0, 0))
         return
@@ -1734,9 +1945,9 @@ class OB1_manager:
 
                 # DETERMINE WHICH ACTION TO TAKE NEXT
                 # check on the valve or execut a scritped command
-                time_since_curr_pwm_input_set = time.time() - curr_inlet_set_time  # get the time the valve has been enforcing a given input conc. by PWM
+                time_since_curr_inlet_set = time.time() - curr_inlet_set_time  # get the time the valve has been enforcing a given input conc. by PWM
                 # time to the next valve check by the computer
-                time_to_check = max(valve_check_cntr * self.valve.dt_check - time_since_curr_pwm_input_set,
+                time_to_check = max(valve_check_cntr * self.valve.dt_check - time_since_curr_inlet_set,
                                     0.0)
                 # time to the next scripted command
                 if (next_scripted_cmd_time < 0):
@@ -1960,6 +2171,205 @@ class OB1_manager:
             
         return
 
+    def cruise_control_recirc(self):
+        curr_state_set_time = time.time()  # time at which the recirculator was set to the current state
+
+        recirc_check_cntr = 0  # number of checks on the valve by the computer since the beginning of cruise control
+        next_action = 0  # next action: 0 if getting commands/updating stmemo, 1 if switching to high input, 2 if switching to low input
+
+        # FOR SCRIPTED VALVE COMMANDS
+        script_launch_time = -1.0  # time at which the scrip was launched - initialised as impossible -1 before the launch event
+        next_scripted_cmd_time = -1.0  # time of execution for the next scripted command
+        next_scripted_cmd = -1  # the next scripted command
+
+        # mode with manual commands
+        if (self.recirc.mode == 'manual'):
+            while (self.doing_cruise_control):
+                # HANDLE THE USER INPUT, IF ANY
+                try:
+                    # get the user command and the argument
+                    user_cmd, user_cmd_arg0, user_cmd_arg1, user_cmd_arg2 = self.user_recirc_cmd_queue.get_nowait()
+
+                    if (user_cmd == 0):  # 0 for changing the recirculator state
+                        # print an error message for impossible states outside the 1-2 (alias A-B) range
+                        if (user_cmd_arg0 < 1 or user_cmd_arg0 > 2):
+                            self.print_queue.put('ERROR: impossible recirculator state')
+                        # otherwise, update recirculator controls
+                        else:
+                            with self.lock:
+                                self.recirc.state = int(user_cmd_arg0)
+                            # set the recirculator to desired state
+                            recirc_error_msg = MUX_DRI_Set_Valve(self.recirc.instridval,  # valve ID value
+                                                                c_int32(self.recirc.state),  # valve inlet
+                                                                0  # valve rotation direction (zero for shortest)
+                                                                )
+                            # record valve error in the log
+                            if (recirc_error_msg != 0):
+                                with open(self.recirc.error_logfilepath, 'a') as file:
+                                    file.write('Recirculator error ' + str(recirc_error_msg) +
+                                               ' at t = ' + str(time.time() - self.cc_start_time) + ' s\n')
+                            self.print_queue.put('State changed')
+                    else:
+                        self.print_queue.put('ERROR: the recirculator is in manual mode')
+                except:
+                    pass
+
+                # RECORD THE RECIRCULATOR DATA IN SHORT-TERM MEMORY
+                # get the time of record
+                t_check_absolute = time.time()  # get the time of the check - NOT from the start of cruise control
+                t_check_relative = t_check_absolute - self.cc_start_time  # convert to time from the start of cruise control
+                with self.lock:
+                    self.recirc.stmemo_time.append(t_check_relative)
+                    self.recirc.stmemo_state.append(self.recirc.state)
+                    # pop the oldest readings if short-term memory is full
+                    if (self.recirc.stmemo_time[-1] - self.recirc.stmemo_time[0] > self.recirc.short_term_memo_dur):
+                        self.recirc.stmemo_time.pop(0)
+                        self.recirc.stmemo_state.pop(0)
+
+                # LOG THE DATA IF IT'S TIME TO DO SO
+                if (recirc_check_cntr % self.recirc.log_every_points == 0):
+                    with open(self.recirc.logfilepath, 'a', newline='') as logfile:
+                        logwriter = csv.writer(logfile)
+                        with self.lock:
+                            row = [t_check_relative]  # time of the readings
+                            row = row + ['AB'[self.recirc.stmemo_state[-1]-1]]
+                            logwriter.writerow(row, )
+
+                # UPDATE THE PERIOD COUNTER AND WAIT FOR THE NEXT CHECK
+                recirc_check_cntr += 1  # update the check counter for the next step
+                sleep_time = recirc_check_cntr * self.recirc.dt_check - (
+                            time.time() - self.cc_start_time)  # find sleep time until the next step
+                time.sleep(max(sleep_time, 0.0))  # sleep until the next step
+
+
+        # mode with scripted commands
+        elif (self.recirc.mode == 'scripted'):
+            # first action is the initial check on the recirculator by the computer
+            next_action = 0
+            # set the executed script command counter - initialised as the impossible -1
+            scripted_cmd_cntr = -1
+            # get the number of scripted commands
+            with self.lock:
+                num_scripted_cmds = len(self.recirc.scripted_cmds)
+
+            # cruise control loop
+            while (self.doing_cruise_control):
+                # act depending on what ought to be done next
+
+                # CHECK ON THE RECIRCULATOR
+                if (next_action == 0):
+                    # HANDLE THE USER INPUT, IF ANY
+                    try:
+                        # get the user command and the argument
+                        user_cmd, user_cmd_arg0, user_cmd_arg1, user_cmd_arg2 = self.user_recirc_cmd_queue.get_nowait()
+
+                        if (user_cmd == 2):  # 2 for launching the  script
+                            # record the time at which the script was launched
+                            script_launch_time = time.time()
+                            # indicate that the script is now running
+                            with self.lock:
+                                self.recirc.script_running = True
+                            # start counting the scripted commands
+                            script_cmd_cntr = 0
+                            # get the next command from the script and the time of its execution
+                            next_scripted_cmd_time = self.recirc.scripted_cmd_times[script_cmd_cntr]
+                            next_scripted_cmd = self.recirc.scripted_cmds[script_cmd_cntr]
+                            # if the command is to be executed striaghtaway, do it out of due order
+                            if (next_scripted_cmd_time == 0):
+                                next_action = 3
+                                continue
+
+                        else:
+                            self.print_queue.put('ERROR: the recirculator is in SCRIPTED mode')
+                    except:
+                        pass
+
+                    # RECORD THE RECIRCULATOR DATA IN SHORT-TERM MEMORY
+                    # get the time of record
+                    t_check_absolute = time.time()  # get the time of the check - NOT from the start of cruise control
+                    t_check_relative = t_check_absolute - self.cc_start_time  # convert to time from the start of cruise control
+                    with self.lock:
+                        self.recirc.stmemo_time.append(t_check_relative)
+                        self.recirc.stmemo_state.append(self.recirc.state)
+                        # pop the oldest readings if short-term memory is full
+                        if (self.recirc.stmemo_time[-1] - self.recirc.stmemo_time[0] > self.recirc.short_term_memo_dur):
+                            self.recirc.stmemo_time.pop(0)
+                            self.recirc.stmemo_state.pop(0)
+
+                    # LOG THE DATA IF IT'S TIME TO DO SO
+                    if (recirc_check_cntr % self.recirc.log_every_points == 0):
+                        with open(self.recirc.logfilepath, 'a', newline='') as logfile:
+                            logwriter = csv.writer(logfile)
+                            with self.lock:
+                                row = [t_check_relative]  # time of the readings
+                                row = row + ['AB'[self.recirc.stmemo_state[-1]-1]]
+                                if (script_launch_time < 0):
+                                    row = row + [None]
+                                else:
+                                    row = row + [time.time() - script_launch_time]
+                                logwriter.writerow(row, )
+
+                    # UPDATE THE CHECK PERIOD COUNTER
+                    recirc_check_cntr += 1  # update the check counter for the next step
+
+                # SWITCH THE RECIRCULATOR STATE IF NEEDED
+                elif (next_action == 3):
+                    # print an error message for impossible inlets outside the 1-12 range
+                    if (next_scripted_cmd < 1 or next_scripted_cmd > 2):
+                        self.print_queue.put('ERROR: impossible recirculator state')
+                    # otherwise, update recirculator controls
+                    else:
+                        with self.lock:
+                            self.recirc.state = int(next_scripted_cmd)
+
+                        # set the recirc to desired input
+                        recirc_error_msg = MUX_DRI_Set_Valve(self.recirc.instridval,  # recirculator ID value
+                                                            c_int32(self.recirc.state),  # recirculator state
+                                                            0  # recirculator rotation direction (zero for shortest)
+                                                            )
+                        # record recirculator error in the log, if any
+                        if (recirc_error_msg != 0):
+                            with open(self.recirc.error_logfilepath, 'a') as file:
+                                file.write('Recirculator error ' + str(recirc_error_msg) +
+                                           ' at t = ' + str(time.time() - self.cc_start_time) + ' s\n')
+
+                        # get the next command in the script
+                        scripted_cmd_cntr += 1
+                        if (scripted_cmd_cntr == num_scripted_cmds):
+                            next_scripted_cmd_time = -1.0  # no more commands in the script
+                            next_scripted_cmd = -1
+                        else:
+                            with self.lock:
+                                next_scripted_cmd_time = self.recirc.scripted_cmd_times[scripted_cmd_cntr]
+                                next_scripted_cmd = self.recirc.scripted_cmds[scripted_cmd_cntr]
+                                print(next_scripted_cmd_time, next_scripted_cmd)
+                        # reset time at which the recirculator was set to the current inlet
+                        curr_state_set_time = time.time()
+                        # reset the recirculator check counter, since we're now enforcing a new PWM input conc.
+                        recirc_check_cntr = 0
+
+                # DETERMINE WHICH ACTION TO TAKE NEXT
+                # check on the recirculator or execute a scritped command
+                time_since_curr_state_set = time.time() - curr_state_set_time  # get the time the valve has been enforcing a given input conc. by PWM
+                # time to the next recirculator check by the computer
+                time_to_check = max(recirc_check_cntr * self.recirc.dt_check - time_since_curr_state_set,
+                                    0.0)
+                # time to the next scripted command
+                if (next_scripted_cmd_time < 0):
+                    time_to_next_scripted_cmd = np.inf
+                else:
+                    time_to_next_scripted_cmd = max(
+                        next_scripted_cmd_time - (time.time() - script_launch_time), 0.0)
+                # pick the shortest time to wait, prioritising script command execution all things equal
+                if (time_to_check < time_to_next_scripted_cmd):
+                    next_action = 0
+                    time.sleep(time_to_check)
+                else:
+                    next_action = 3
+                    time.sleep(time_to_next_scripted_cmd)
+
+        return
+
     # stop cruise control
     def stop_cruise_control(self):
         self.doing_cruise_control = False
@@ -1983,6 +2393,10 @@ class OB1_manager:
         # if valve in use, destroy communications
         if(self.valve.in_use):
             valve_error_msg = MUX_DRI_Destructor(self.valve.instridval)
+
+        # if recirculator in use, destroy communications
+        if (self.recirc.in_use):
+            recirc_error_msg = MUX_DRI_Destructor(self.recirc.instridval)
 
         print('Cruise control stopped')
         return
@@ -2133,8 +2547,8 @@ class OB1_manager:
             axs_live[0, 2].axis('off')
 
 
-        # IF VALVE NOT IN USE, plot estimated medium left in each channels' source
-        if(not self.valve.in_use):
+        # IF VALVE AND/OR RECIRCULATOR NOT IN USE, plot estimated medium left in source for each channel
+        if(not self.valve.in_use and not self.recirc.in_use):
             # plot the estimated medium left in the source for channel 1
             if(self.channels[0].in_use):
                 # plot formatting
@@ -2188,19 +2602,39 @@ class OB1_manager:
             valve_inlet_line_live, = axs_live[1, 1].plot([], [], label='Valve inlet',
                            linestyle='-', color='black')
 
-            # plot the valve input conc.
+            # IF RECIRCULATOR NOT IN USE, also plot concentrations created by the valve
+            if(not self.recirc.in_use):
+                # plot the valve input conc.
+                axs_live[1, 2].grid()
+                input_conc_ylims=(self.valve.inlet_concs[0]*0.75, self.valve.inlet_concs[-1]*1.25)
+                axs_live[1, 2].set_ylim(input_conc_ylims[0],input_conc_ylims[1])
+                # plot labels
+                axs_live[1, 2].set_xlabel('Time since cruise control start (s)')
+                axs_live[1, 2].set_ylabel('Set input conc.')
+                # mark the possible inlet range
+                axs_live[1, 2].axhspan(ymin=input_conc_ylims[0], ymax=self.valve.inlet_concs[0], color='grey', alpha=0.5)
+                axs_live[1, 2].axhspan(ymin=self.valve.inlet_concs[-1], ymax=input_conc_ylims[-1], color='grey', alpha=0.5)
+                # plot the set input concentration
+                valve_input_conc_line_live, = axs_live[1, 2].plot([], [], label='Set input conc.',
+                               linestyle='-', color='black')
+
+        # IF RECIRCULATOR IN USE, plot the state
+        if(self.recirc.in_use):
+            # plot the recirculator state
             axs_live[1, 2].grid()
-            input_conc_ylims=(self.valve.inlet_concs[0]*0.75, self.valve.inlet_concs[-1]*1.25)
-            axs_live[1, 2].set_ylim(input_conc_ylims[0],input_conc_ylims[1])
+            axs_live[1, 2].set_ylim(bottom=0, top=3)
             # plot labels
             axs_live[1, 2].set_xlabel('Time since cruise control start (s)')
-            axs_live[1, 2].set_ylabel('Set input conc.')
+            axs_live[1, 2].set_ylabel('Recirc. state')
+            # ticks corresponding to inlets
+            axs_live[1, 2].set_yticks(np.arange(1, 2.5, 1, np.dtype(int)))
+            axs_live[1, 2].set_yticklabels('AB') # redefined as state letters
             # mark the possible inlet range
-            axs_live[1, 2].axhspan(ymin=input_conc_ylims[0], ymax=self.valve.inlet_concs[0], color='grey', alpha=0.5)
-            axs_live[1, 2].axhspan(ymin=self.valve.inlet_concs[-1], ymax=input_conc_ylims[-1], color='grey', alpha=0.5)
-            # plot the set input concentration
-            valve_input_conc_line_live, = axs_live[1, 2].plot([], [], label='Set input conc.',
-                           linestyle='-', color='black')
+            axs_live[1, 2].axhspan(ymin=0, ymax=1, color='grey', alpha=0.5)
+            axs_live[1, 2].axhspan(ymin=2, ymax=3, color='grey', alpha=0.5)
+            # plot the inlets
+            recirc_state_line_live, = axs_live[1, 2].plot([], [], label='Recirc. state',
+                                                         linestyle='-', color='black')
 
         # IF SOME PLOTS NOT PRESENT, just pass Nones as plot lines to be passing something
         if (not self.channels[0].in_use): # channel 1 PID gains
@@ -2211,13 +2645,17 @@ class OB1_manager:
             ch2_p_gain_line_live = None
             ch2_i_gain_line_live = None
             ch2_d_gain_line_live = None
-        if (self.valve.in_use or (not self.channels[0].in_use)):  # channel 1 medium left
+        if (self.valve.in_use or self.recirc.in_use or (not self.channels[0].in_use)):  # channel 1 medium left
             ch1_medleft_line_live = None
-        if (self.valve.in_use or (not self.channels[1].in_use)):  # channel medium left
+        if (self.valve.in_use or self.recirc.in_use or (not self.channels[1].in_use)):  # channel medium left
             ch2_medleft_line_live = None
         if(not self.valve.in_use): # valve plot lines
             valve_inlet_line_live = None
             valve_input_conc_line_live = None
+        if(self.recirc.in_use):
+            valve_input_conc_line_live = None
+        else:
+            recirc_state_line_live = None
 
         # define the plot updater function
         def live_plot_updater(frames):
@@ -2258,8 +2696,8 @@ class OB1_manager:
                     axs_live[0, 2].relim()
                     axs_live[0, 2].autoscale_view()
 
-                # IF VALVE NOT IN USE, update medium left plots
-                if(not self.valve.in_use):
+                # IF VALVE AND/OR RECIRCULATOR NOT IN USE, update medium left plots
+                if(not self.valve.in_use and not self.recirc.in_use):
                     # update the medium left plot for channel 1
                     if(self.channels[0].in_use):
                         ch1_medleft_line_live.set_data(self.channels[0].stmemo_time, self.channels[0].stmemo_medleft)
@@ -2275,16 +2713,21 @@ class OB1_manager:
                 # IF VALVE IN USE, update valve plots
                 else:
                     # update the inlet plot for the valve
-                    if(self.valve.in_use):
-                        valve_inlet_line_live.set_data(self.valve.stmemo_time, self.valve.stmemo_inlet)
-                        axs_live[1, 1].relim()
-                        axs_live[1, 1]. autoscale_view()
+                    valve_inlet_line_live.set_data(self.valve.stmemo_time, self.valve.stmemo_inlet)
+                    axs_live[1, 1].relim()
+                    axs_live[1, 1]. autoscale_view()
 
                     # update the input conc plot for the valve
-                    if (self.valve.in_use):
+                    if (not self.recirc.in_use):
                         valve_input_conc_line_live.set_data(self.valve.stmemo_time, self.valve.stmemo_input_conc)
                         axs_live[1, 2].relim()
                         axs_live[1, 2].autoscale_view()
+
+                # IF RECIRCULATOR IN USE, update recirculator plots
+                if(self.recirc.in_use):
+                    recirc_state_line_live.set_data(self.recirc.stmemo_time, self.recirc.stmemo_state)
+                    axs_live[1, 2].relim()
+                    axs_live[1, 2].autoscale_view()
 
             return ch1_flow_line_live, ch1_p_line_live, \
                 ch1_medleft_line_live, \
@@ -2294,7 +2737,8 @@ class OB1_manager:
                 ch2_medleft_line_live, \
                 ch2_ref_flow_line_live, ch2_const_press_line_live, \
                 ch2_p_gain_line_live, ch2_i_gain_line_live, ch2_d_gain_line_live, \
-                valve_inlet_line_live, valve_input_conc_line_live
+                valve_inlet_line_live, valve_input_conc_line_live, \
+                recirc_state_line_live
 
 
                 # create the animator
@@ -2324,6 +2768,7 @@ class OB1_manager:
                      data_gains, # P, I, D gains
                      data_valve_inlet,  # inlet selected at the valve
                      data_valve_input_conc, # valve input concentration
+                     data_recirc_state, # recirculator states
                      # pressure and flow plot ranges
                      p_range=(-10, 2000),  # pressure range
                      flow_range=(-10, 80),  # flow rate range
@@ -2405,8 +2850,8 @@ class OB1_manager:
         else:
             axs[0, 2].axis('off')
 
-        # IF VALVE NOT IN USE, plot estimated medium left in source for each channel
-        if(not self.valve.in_use):
+        # IF VALVE AND/OR RECIRCULATOR NOT IN USE, plot estimated medium left in source for each channel
+        if(not self.valve.in_use and not self.recirc.in_use):
             # plot the estimated medium left for channel 1
             axs[1, 1].grid()
             if(self.channels[0].in_use):
@@ -2438,22 +2883,54 @@ class OB1_manager:
             # plot the valve inlet
             axs[1, 1].grid()
             if (self.valve.in_use):
-                axs[1, 1].set_ylim(bottom=1, top=12)
+                # plot the valve inlet
+                axs[1, 1].set_ylim(bottom=0, top=13)
                 # plot labels
                 axs[1, 1].set_xlabel('Time since cruise control start (s)')
                 axs[1, 1].set_ylabel('Valve inlet')
+                # ticks corresponding to inlets
+                axs[1, 1].set_yticks(np.arange(1, 12.5, 1, np.dtype(int)))
+                # mark the possible inlet range
+                axs[1, 1].axhspan(ymin=0, ymax=1, color='grey', alpha=0.5)
+                axs[1, 1].axhspan(ymin=12, ymax=13, color='grey', alpha=0.5)
                 # plot the inlets
                 axs[1, 1].plot(data_time[2], data_valve_inlet, label='Valve inlet',
                                linestyle='-', color='black')
 
-            # plot the valve input conc.
+            # plot the valve input conc. if recirculator not in use
+            if(not self.recirc.in_use):
+                axs[1, 2].grid()
+                if (self.valve.in_use):
+                    input_conc_ylims = (self.valve.inlet_concs[0] * 0.75, self.valve.inlet_concs[-1] * 1.25)
+                    axs[1, 2].set_ylim(input_conc_ylims[0], input_conc_ylims[1])
+                    # plot labels
+                    axs[1, 2].set_xlabel('Time since cruise control start (s)')
+                    axs[1, 2].set_ylabel('Set input conc.')
+                    # mark the possible inlet range
+                    axs[1, 2].axhspan(ymin=input_conc_ylims[0], ymax=self.valve.inlet_concs[0], color='grey',
+                                           alpha=0.5)
+                    axs[1, 2].axhspan(ymin=self.valve.inlet_concs[-1], ymax=input_conc_ylims[-1], color='grey',
+                                           alpha=0.5)
+                    # plot the inlets
+                    axs[1, 2].plot(data_time[2], data_valve_input_conc, label='Set input conc.',
+                                   linestyle='-', color='black')
+
+        if(self.recirc.in_use):
             axs[1, 2].grid()
             if (self.valve.in_use):
+                # plot the recirculator state
+                axs[1, 2].set_ylim(bottom=0, top=3)
                 # plot labels
                 axs[1, 2].set_xlabel('Time since cruise control start (s)')
-                axs[1, 2].set_ylabel('Set input conc.')
+                axs[1, 2].set_ylabel('Recirc. state')
+                # ticks corresponding to inlets
+                axs[1, 2].set_yticks(np.arange(1, 2.5, 1, np.dtype(int)))
+                axs[1, 2].set_yticklabels('AB')  # redefined as state letters
+                # mark the possible inlet range
+                axs[1, 2].axhspan(ymin=0, ymax=1, color='grey', alpha=0.5)
+                axs[1, 2].axhspan(ymin=2, ymax=3, color='grey', alpha=0.5)
                 # plot the inlets
-                axs[1, 2].plot(data_time[2], data_valve_input_conc, label='Set input conc.',
+                axs[1, 2].plot(data_time[3], data_recirc_state, label='Recirc. state',
                                linestyle='-', color='black')
 
         # adjust the layout
@@ -2465,7 +2942,7 @@ class OB1_manager:
     # plot the shrt-term memory
     def plot_stmemo(self,
                     plotfilename='logs/OB1_PID_log.png'):
-        self.plot_cc_data(data_time=[self.channels[0].stmemo_time, self.channels[1].stmemo_time, self.valve.stmemo_time],
+        self.plot_cc_data(data_time=[self.channels[0].stmemo_time, self.channels[1].stmemo_time, self.valve.stmemo_time, self.recirc.stmemo_time],
                           data_p=[self.channels[0].stmemo_p, self.channels[1].stmemo_p],
                           data_flow=[self.channels[0].stmemo_flow, self.channels[1].stmemo_flow],
                           data_medleft=[self.channels[0].stmemo_medleft, self.channels[1].stmemo_medleft],
@@ -2477,6 +2954,7 @@ class OB1_manager:
                                       'D': [self.channels[0].stmemo_d_gain, self.channels[1].stmemo_d_gain],},
                           data_valve_inlet=self.valve.stmemo_inlet,
                           data_valve_input_conc=self.valve.stmemo_input_conc,
+                          data_recirc_state=self.recirc.stmemo_state,
                           plotfilename=plotfilename)
         return
 
@@ -2484,6 +2962,7 @@ class OB1_manager:
     def plot_log(self,
                  OB1_logfilename='logs/OB1_PID_log.csv',
                  valve_logfilename='logs/valve_log.csv',
+                 recirc_logfilename='logs/recirc_log.csv',
                  plotfilename='logs/log.png',
                  # show safeguards or not?
                  show_safeguards=False,
@@ -2495,12 +2974,22 @@ class OB1_manager:
             valve_log_df = pd.read_csv(valve_logfilename, na_values='N/A')
         else:
             valve_log_df = None
+        # read the recirculator log file (if not in use, just return a None)
+        if (self.recirc.in_use):
+            recirc_log_df = pd.read_csv(recirc_logfilename, na_values='N/A')
+        else:
+            recirc_log_df = None
 
         # get the data for time, pressure, flow
+        log_time = [OB1_log_df['Time (s)'].to_numpy(), OB1_log_df['Time (s)'].to_numpy()]
         if(self.valve.in_use):
-            log_time = [OB1_log_df['Time (s)'].to_numpy(), OB1_log_df['Time (s)'].to_numpy(), valve_log_df['Time (s)'].to_numpy()]
+            log_time.append(valve_log_df['Time (s)'].to_numpy())
         else:
-            log_time = [OB1_log_df['Time (s)'].to_numpy(), OB1_log_df['Time (s)'].to_numpy(), [None]]
+            log_time.append([None])
+        if (self.recirc.in_use):
+            log_time.append(recirc_log_df['Time (s)'].to_numpy())
+        else:
+            log_time.append([None])
         log_p = [OB1_log_df['CH 1 Pressure (mbar)'].to_numpy(), OB1_log_df['CH 2 Pressure (mbar)'].to_numpy()]
         log_flow = [OB1_log_df['CH 1 Flow (ul/min)'].to_numpy(), OB1_log_df['CH 2 Flow (ul/min)'].to_numpy()]
         # get the data for medium left in the source
@@ -2520,6 +3009,17 @@ class OB1_manager:
         else:
             log_valve_inlets = [None]
             log_valve_input_concs = [None]
+        # get the data for the recirculator (if not in use, just return a None)
+        if (self.recirc.in_use):
+            log_recirc_states_A_or_B = recirc_log_df['Recirc. state']
+            log_recirc_states=np.zeros(len(log_recirc_states_A_or_B))
+            for i in range(0,len(log_recirc_states_A_or_B)):
+                if(log_recirc_states_A_or_B[i]=='A'):
+                    log_recirc_states[i] = 1
+                else:
+                    log_recirc_states[i] = 2
+        else:
+            log_recirc_states = [None]
 
         # plot the data
         self.plot_cc_data(data_time=log_time, data_p=log_p, data_flow=log_flow,
@@ -2529,6 +3029,7 @@ class OB1_manager:
                           data_gains=log_gains,
                           data_valve_inlet=log_valve_inlets,
                           data_valve_input_conc=log_valve_input_concs,
+                          data_recirc_state=log_recirc_states,
                           plotfilename=plotfilename)
         return
 
@@ -2704,6 +3205,82 @@ class valve_manager:
         return
 
 
+# MUX RECIRCULATOR MANAGER CLASS
+class recirc_manager:
+    def __init__(self, id=1):
+        self.in_use = False  # by default, channel unused
+
+        # instrument ID (assigned by the Elveflow SDK)
+        self.instrid = c_int32()
+        self.instridval = 0
+
+        # recirculator-computer interaction parameters (initialised with zeros, then updated according to the settings)
+        self.dt_check = 0.0
+        self.dt_log = 0.0
+        self.log_every_points = 0
+        self.short_term_memo_dur = 0
+
+        # recurculator mode: 'manual' or 'scripted' switching
+        self.mode = 'manual'
+
+        # recirculator data log file path (initialised with an empty string, then updated according to the user input)
+        self.logfilepath = ''
+        self.error_logfilepath = ''
+
+        # which state the recirculator is currently switched to (A=1 or B=2)
+        self.state = 1
+
+        # colours for plotting
+        self.plot_colour = ['gray']
+
+        # short-term memory for control and logging
+        self.stmemo_time = []
+        self.stmemo_state = []  # state we're switched to
+
+        # program for the recirculator set by the script
+        self.scripted_cmd_times = np.array([])
+        self.scripted_cmds = np.array([])  # scripted inlets for set_scripted or input concs. for pwm_scripted
+        self.script_running = False  # indicator of whether the script is running
+
+        return
+
+
+    # load the script for the recirculator
+    def load_script(self):
+        while True:
+            # prompt the user to choose the script
+            print('Select the recirculator script to load: ')
+            script_filename = tkinter.filedialog.askopenfilename()
+
+            # read the .csv script
+            script_df = pd.read_csv(script_filename, na_values='N/A')  # get the dataframe from csv
+
+            # check if the script is compatible with the recirculator mode, re-prompt the user if not
+            if not (
+                    (script_df.columns[1] == 'Recirc. state' and self.mode == 'scripted')
+            ):
+                print('Wrong script for the recirculator mode: ' + self.mode)
+                continue
+            break
+
+        # get the scripted switching times
+        self.scripted_cmd_times = script_df['Time (s)'].to_numpy()
+        # get the scripted commands
+        if (self.mode == 'scripted'):
+            scripted_cmds_A_or_B = script_df['Recirc. state']
+            self.scripted_cmds = np.zeros(len(scripted_cmds_A_or_B),dtype=c_int32)
+            for i in range(len(scripted_cmds_A_or_B)):
+                if(scripted_cmds_A_or_B[i] == 'A'):
+                    self.scripted_cmds[i] = 1
+                elif(scripted_cmds_A_or_B[i] == 'B'):
+                    self.scripted_cmds[i] = 2
+                else:
+                    print('Error! Invalid recirculator state')
+                    return
+
+        return
+
+
 # MAIN FUNCTION --------------------------------------------------------------------------------------------------------
 def main():
     # initialise the OB-1 manager
@@ -2713,9 +3290,10 @@ def main():
     date_time_string = (datetime.datetime.now()).strftime("_%d%m_%H%M")
     OB1_logfilename = r'logs/log'+ date_time_string + '_OB1.csv'
     valve_logfilename = r'logs/log' + date_time_string + '_valve.csv'
+    recirc_logfilename = r'logs/log' + date_time_string + '_recirc.csv'
 
     # begin cruise control
-    Kenobi.cruise_control(OB1_logfilename, valve_logfilename)
+    Kenobi.cruise_control(OB1_logfilename, valve_logfilename, recirc_logfilename)
 
     # plot the short-term memory at the end
     Kenobi.plot_stmemo(plotfilename='logs/final_stmemo' + date_time_string + '.png')
@@ -2723,6 +3301,7 @@ def main():
     # plot the logged data
     Kenobi.plot_log(show_safeguards=False,
                     OB1_logfilename=OB1_logfilename, valve_logfilename=valve_logfilename,
+                    recirc_logfilename=recirc_logfilename,
                     plotfilename='logs/log' + date_time_string + '.png')
 
     return
