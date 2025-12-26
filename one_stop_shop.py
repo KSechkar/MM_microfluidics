@@ -1,12 +1,12 @@
 # ONE_STOP_SHOP.PY
 # For running all microfluidic experiments
 
-EMULATING = True
+EMULATING = False
 
 # DEVICE NAMES AND PORTS - CHECK ON NIMAX IF GETTING INITIALISATION ERRORS ---------------------------------------------
 OB1_NAME = '0204CC5D'
 VALVE_PORT ='ASRL3::INSTR'
-RECIRC_PORT = 'ASRL0::INSTR' # TO BE CORRECTED!!
+RECIRC_PORT = 'ASRL5::INSTR'
 
 # IMPORTS --------------------------------------------------------------------------------------------------------------
 # PYTHON PACKAGES
