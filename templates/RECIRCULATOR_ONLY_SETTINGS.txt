@@ -1,0 +1,52 @@
+OB1-COMPUTER INTERACTIONS
+dt_check = 1.0 s
+dt_log = 1.0 s
+short_term_memo_dur = 60.0 s
+END OB1-COMPUTER INTERACTIONS
+
+CHANNEL 1
+FLOW CONTROLLER
+ref_flow = 42.0 ul/min
+p_gain = 0.05
+i_gain = 0.075
+d_gain = 0.05
+min_flerrint = -8000.0
+max_flerrint = 8000.0
+min_press_ctrl = 0.0 mbar
+max_p_ctrl = 2000.0 mbar
+END FLOW CONTROLLER
+
+SAFEGUARDS
+END SAFEGUARDS
+END CHANNEL 1
+
+CHANNEL 2
+NOT IN USE
+END CHANNEL2
+
+VALVE
+VALVE-COMPUTER INTERACTIONS
+valve_dt_check = 1.0 s
+valve_dt_log = 1.0 s
+valve_stmemo_dur = 60.0 s
+END VALVE-COMPUTER INTERACTIONS
+
+VALVE OPERATIONS
+mode = set
+inlet_concs = 0.0 10.0
+starting_inlet = 1
+END VALVE OPERATIONS
+END VALVE
+
+RECIRCULATOR
+RECIRCULATOR-COMPUTER INTERACTIONS
+recirc_dt_check = 1.0 s
+recirc_dt_log = 1.0 s
+recirc_stmemo_dur = 60.0 s
+END RECIRCULATOR-COMPUTER INTERACTIONS
+
+RECIRCULATOR OPERATIONS
+mode = manual
+starting_state = A
+END RECIRCULATOR OPERATIONS
+END RECIRCULATOR
