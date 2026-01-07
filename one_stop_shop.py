@@ -2454,7 +2454,7 @@ class OB1_manager:
         # calculate the pressure to supply
         p_calc = ch.p_gain*flerr + ch.i_gain*ch.flerrint + ch.d_gain*flder
         # clip the pressure to physically possible values (0-2000 mbar) and/or user-defined values
-        p = max(max(0, ch.min_press_ctrl), min(p_calc, ch.max_p_ctrl, ch.max_p_ctrl))
+        p = max(max(0, ch.min_press_ctrl), min(p_calc, ch.max_p_ctrl))
 
         # return the pressure to feed to the system
         return p

@@ -10,8 +10,8 @@ ref_flow = 42.0 ul/min
 p_gain = 0.05
 i_gain = 0.075
 d_gain = 0.05
-min_flerrint = -8000.0
-max_flerrint = 8000.0
+min_flerrint = -24000.0
+max_flerrint = 24000.0
 min_press_ctrl = 0.0 mbar
 max_p_ctrl = 2000.0 mbar
 END FLOW CONTROLLER
