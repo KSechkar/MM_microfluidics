@@ -1,7 +1,7 @@
 # ONE_STOP_SHOP.PY
 # For running all microfluidic experiments
 
-EMULATING = False
+EMULATING = True
 
 # DEVICE NAMES AND PORTS - CHECK ON NIMAX IF GETTING INITIALISATION ERRORS ---------------------------------------------
 OB1_NAME = '0204CC5D'
@@ -396,8 +396,9 @@ class OB1_manager:
         print('\nStarting settings saved in %s' % save_filename)
 
         # GET READY TO DO CRUISE CONTROL -------------------------------------------------------------------------------
-        self.doing_cruise_control = False
+        self.doing_cruise_control = False # cruise control not started just yet
         self.OB1_logfilepath = ''
+        self.logging = True     # logging the system's state by default
 
         # create a queue of user commands for the OB-1 thread
         self.user_cmd_queue = queue.Queue()
@@ -1298,11 +1299,7 @@ class OB1_manager:
                         ch.i_gain = user_cmd_arg1
                         ch.d_gain = user_cmd_arg2
 
-                elif (user_cmd == 4):   # 4 for opening a live plot
-                    if (self.threads_just_started or self.live_plot_running):  # only open a new live plot if one isn't already running
-                        self.print_queue.put('Live plot already running!')
-                    else:
-                        self.open_live_plot = True
+                # 4 - now deprecated, as live plotting triggered from cruise_control_user
 
                 elif (user_cmd == 5):  # 5 for changing the medium amount in the source - not supported if a valve is active
                     if (not ch.in_use):
@@ -1318,6 +1315,7 @@ class OB1_manager:
                     else:
                         ch.flerrint = 0.0
                         self.print_queue.put('Integral controller memory set to zero')
+
             except:
                 pass
 
@@ -1431,32 +1429,32 @@ class OB1_manager:
                             ch.stmemo_i_gain.pop(0)
                             ch.stmemo_d_gain.pop(0)
                             ch.stmemo_medleft.pop(0)
-
-            # LOG THE DATA IF IT'S TIME TO DO SO
-            if(cc_check_cntr % self.log_every_points == 0):
-                with open(self.OB1_logfilepath, 'a', newline='') as logfile:
-                    logwriter = csv.writer(logfile)
-                    with self.lock:
-                        row = [t_check_relative]    # time of the readings - common for both channels
-                        for ch in self.channels:
-                            if (ch.in_use):
-                                row = row + [
-                                    #  pressure, flow
-                                    ch.stmemo_p[-1], ch.stmemo_flow[-1],
-                                    # medium left in the source
-                                    ch.stmemo_medleft[-1],
-                                    # controller mode
-                                    ch.stmemo_mode[-1],
-                                    # reference flow
-                                    ch.stmemo_ref_flow[-1],
-                                    # constant pressure setpoint
-                                    ch.stmemo_const_press[-1],
-                                    # P, I, D gains
-                                    ch.stmemo_p_gain[-1], ch.stmemo_i_gain[-1], ch.stmemo_d_gain[-1]]
-                            else:
-                                row = row + [None]*9
-                        # record the controller state depdning on the mode
-                        logwriter.writerow(row, )
+            # LOG THE DATA IF LOGGING AT ALL AND IT'S TIME TO DO SO
+            if (self.logging):
+                if(cc_check_cntr % self.log_every_points == 0):
+                    with open(self.OB1_logfilepath, 'a', newline='') as logfile:
+                        logwriter = csv.writer(logfile)
+                        with self.lock:
+                            row = [t_check_relative]    # time of the readings - common for both channels
+                            for ch in self.channels:
+                                if (ch.in_use):
+                                    row = row + [
+                                        #  pressure, flow
+                                        ch.stmemo_p[-1], ch.stmemo_flow[-1],
+                                        # medium left in the source
+                                        ch.stmemo_medleft[-1],
+                                        # controller mode
+                                        ch.stmemo_mode[-1],
+                                        # reference flow
+                                        ch.stmemo_ref_flow[-1],
+                                        # constant pressure setpoint
+                                        ch.stmemo_const_press[-1],
+                                        # P, I, D gains
+                                        ch.stmemo_p_gain[-1], ch.stmemo_i_gain[-1], ch.stmemo_d_gain[-1]]
+                                else:
+                                    row = row + [None]*9
+                            # record the controller state depdning on the mode
+                            logwriter.writerow(row, )
 
             # UPDATE THE CHECK COUNTER AND WAIT FOR THE NEXT CHECK
             cc_check_cntr += 1  # update the check counter for the next step
@@ -1482,6 +1480,10 @@ class OB1_manager:
                 cmds_on_offer += '; set_recirc_state'
             elif(self.recirc.mode == 'scripted'):
                 cmds_on_offer += '; launch_recirc_script'
+        if (self.logging):
+            cmds_on_offer += '; pause_log'
+        else:
+            cmds_on_offer += '; resume_log'
 
         cmds_on_offer += '; live_plot'
 
@@ -1545,10 +1547,9 @@ class OB1_manager:
                                          p_gain,            # zeroth arg is the new P gain
                                          i_gain,            # first arg is the new I gain
                                          d_gain))                # second arg is the new D gain
-            elif(user_cmd=='live_plot'):  # open a live plot
-                self.user_cmd_queue.put((4,  # command code: 4 for stopping the cruise control
-                                         0, # channel: irrelevant for cmd 4
-                                         0, 0, 0))  # args: irrelevant for cmd 4
+
+            # command code 4 now deprecated, as live plotting triggered from cruise_control_user
+
             elif(user_cmd=='change_medium'):
                 if (self.channels[0].in_use and (not self.channels[1].in_use)):
                     ch_id = 1
@@ -1606,6 +1607,23 @@ class OB1_manager:
                 self.user_recirc_cmd_queue.put((2,  # command code: 2 for launching a script; yes I know '1' is undefined, but I'm going fro consistency with the recirculator
                                                # args
                                                0, 0, 0))
+
+            # USER INTERFACE COMMANDS ----------------------------------------------------------------------------------
+            elif (user_cmd == 'live_plot'):  # opening a live plot
+                if (self.threads_just_started or self.live_plot_running):  # only open a new live plot if one isn't already running
+                    self.print_queue.put('Live plot already running!')
+                else:
+                    self.open_live_plot = True
+            elif (user_cmd == 'pause_log'):  # stop the logging
+                if (not self.logging):  # only open a new live plot if one isn't already running
+                    self.print_queue.put('Logging stopped already!')
+                else:
+                    self.logging = False
+            elif (user_cmd == 'resume_log'):  # stop the logging
+                if (self.logging):  # only open a new live plot if one isn't already running
+                    self.print_queue.put('Logging already!')
+                else:
+                    self.logging = True
         return
 
     def cruise_control_valve(self):
@@ -1671,14 +1689,15 @@ class OB1_manager:
                         self.valve.stmemo_inlet.pop(0)
                         self.valve.stmemo_input_conc.pop(0)
 
-                # LOG THE DATA IF IT'S TIME TO DO SO
-                if (valve_check_cntr % self.valve.log_every_points == 0):
-                    with open(self.valve.logfilepath, 'a', newline='') as logfile:
-                        logwriter = csv.writer(logfile)
-                        with self.lock:
-                            row = [t_check_relative]  # time of the readings
-                            row = row + [self.valve.stmemo_inlet[-1], self.valve.stmemo_input_conc[-1]]
-                            logwriter.writerow(row, )
+                # LOG THE DATA IF LOGGING AT ALL AND IT'S TIME TO DO SO
+                if(self.logging):
+                    if (valve_check_cntr % self.valve.log_every_points == 0):
+                        with open(self.valve.logfilepath, 'a', newline='') as logfile:
+                            logwriter = csv.writer(logfile)
+                            with self.lock:
+                                row = [t_check_relative]  # time of the readings
+                                row = row + [self.valve.stmemo_inlet[-1], self.valve.stmemo_input_conc[-1]]
+                                logwriter.writerow(row, )
 
                 # UPDATE THE PERIOD COUNTER AND WAIT FOR THE NEXT CHECK
                 valve_check_cntr += 1  # update the check counter for the next step
@@ -1749,19 +1768,21 @@ class OB1_manager:
                             self.valve.stmemo_pwm_duty_cycle.pop(0)
                             self.valve.stmemo_pwm_low_inlet.pop(0)
                             self.valve.stmemo_pwm_high_inlet.pop(0)
-                    # LOG THE DATA IF IT'S TIME TO DO SO
-                    if (valve_check_cntr % self.valve.log_every_points == 0):
-                        with open(self.valve.logfilepath, 'a', newline='') as logfile:
-                            logwriter = csv.writer(logfile)
-                            with self.lock:
-                                row = [t_check_rel_to_cc_start]  # time of the readings
-                                row = row + [self.valve.stmemo_inlet[-1], self.valve.stmemo_input_conc[-1]]
-                                row = row + [
-                                    self.valve.stmemo_pwm_duty_cycle[-1],
-                                    self.valve.stmemo_pwm_low_inlet[-1],
-                                    self.valve.stmemo_pwm_high_inlet[-1]
-                                ]
-                                logwriter.writerow(row, )
+                            
+                    # LOG THE DATA IF LOGGING AT ALL AND IT'S TIME TO DO SO
+                    if (self.logging):
+                        if (valve_check_cntr % self.valve.log_every_points == 0):
+                            with open(self.valve.logfilepath, 'a', newline='') as logfile:
+                                logwriter = csv.writer(logfile)
+                                with self.lock:
+                                    row = [t_check_rel_to_cc_start]  # time of the readings
+                                    row = row + [self.valve.stmemo_inlet[-1], self.valve.stmemo_input_conc[-1]]
+                                    row = row + [
+                                        self.valve.stmemo_pwm_duty_cycle[-1],
+                                        self.valve.stmemo_pwm_low_inlet[-1],
+                                        self.valve.stmemo_pwm_high_inlet[-1]
+                                    ]
+                                    logwriter.writerow(row, )
 
                     # update the number of checks which have been performed
                     valve_check_cntr += 1
@@ -1888,18 +1909,19 @@ class OB1_manager:
                             self.valve.stmemo_inlet.pop(0)
                             self.valve.stmemo_input_conc.pop(0)
 
-                    # LOG THE DATA IF IT'S TIME TO DO SO
-                    if (valve_check_cntr % self.valve.log_every_points == 0):
-                        with open(self.valve.logfilepath, 'a', newline='') as logfile:
-                            logwriter = csv.writer(logfile)
-                            with self.lock:
-                                row = [t_check_relative]  # time of the readings
-                                row = row + [self.valve.stmemo_inlet[-1], self.valve.stmemo_input_conc[-1]]
-                                if(script_launch_time < 0):
-                                    row = row + [None]
-                                else:
-                                    row = row + [time.time() - script_launch_time]
-                                logwriter.writerow(row, )
+                    # LOG THE DATA IF LOGGING AT ALL AND IT'S TIME TO DO SO
+                    if (self.logging):
+                        if (valve_check_cntr % self.valve.log_every_points == 0):
+                            with open(self.valve.logfilepath, 'a', newline='') as logfile:
+                                logwriter = csv.writer(logfile)
+                                with self.lock:
+                                    row = [t_check_relative]  # time of the readings
+                                    row = row + [self.valve.stmemo_inlet[-1], self.valve.stmemo_input_conc[-1]]
+                                    if(script_launch_time < 0):
+                                        row = row + [None]
+                                    else:
+                                        row = row + [time.time() - script_launch_time]
+                                    logwriter.writerow(row, )
 
                     # UPDATE THE CHECK PERIOD COUNTER
                     valve_check_cntr += 1  # update the check counter for the next step
@@ -2028,26 +2050,27 @@ class OB1_manager:
                             self.valve.stmemo_pwm_duty_cycle.pop(0)
                             self.valve.stmemo_pwm_low_inlet.pop(0)
                             self.valve.stmemo_pwm_high_inlet.pop(0)
-                    # LOG THE DATA IF IT'S TIME TO DO SO
-                    if (valve_check_cntr % self.valve.log_every_points == 0):
-                        with open(self.valve.logfilepath, 'a', newline='') as logfile:
-                            logwriter = csv.writer(logfile)
-                            with self.lock:
-                                row = [t_check_rel_to_cc_start]  # time of the readings
-                                # valve inlet and input conc.
-                                row = row + [self.valve.stmemo_inlet[-1], self.valve.stmemo_input_conc[-1]]
-                                # pwm characteristics
-                                row = row + [
-                                    self.valve.stmemo_pwm_duty_cycle[-1],
-                                    self.valve.stmemo_pwm_low_inlet[-1],
-                                    self.valve.stmemo_pwm_high_inlet[-1]
-                                ]
-                                # time since the script was launched
-                                if(script_launch_time<0):
-                                    row = row + [None]
-                                else:
-                                    row = row + [time.time() - script_launch_time]
-                                logwriter.writerow(row, )
+                    # LOG THE DATA IF LOGGING AT ALL AND IT'S TIME TO DO SO
+                    if (self.logging):
+                        if (valve_check_cntr % self.valve.log_every_points == 0):
+                            with open(self.valve.logfilepath, 'a', newline='') as logfile:
+                                logwriter = csv.writer(logfile)
+                                with self.lock:
+                                    row = [t_check_rel_to_cc_start]  # time of the readings
+                                    # valve inlet and input conc.
+                                    row = row + [self.valve.stmemo_inlet[-1], self.valve.stmemo_input_conc[-1]]
+                                    # pwm characteristics
+                                    row = row + [
+                                        self.valve.stmemo_pwm_duty_cycle[-1],
+                                        self.valve.stmemo_pwm_low_inlet[-1],
+                                        self.valve.stmemo_pwm_high_inlet[-1]
+                                    ]
+                                    # time since the script was launched
+                                    if(script_launch_time<0):
+                                        row = row + [None]
+                                    else:
+                                        row = row + [time.time() - script_launch_time]
+                                    logwriter.writerow(row, )
 
                     # update the number of checks which have been performed
                     valve_check_cntr += 1
@@ -2226,14 +2249,15 @@ class OB1_manager:
                         self.recirc.stmemo_time.pop(0)
                         self.recirc.stmemo_state.pop(0)
 
-                # LOG THE DATA IF IT'S TIME TO DO SO
-                if (recirc_check_cntr % self.recirc.log_every_points == 0):
-                    with open(self.recirc.logfilepath, 'a', newline='') as logfile:
-                        logwriter = csv.writer(logfile)
-                        with self.lock:
-                            row = [t_check_relative]  # time of the readings
-                            row = row + ['AB'[self.recirc.stmemo_state[-1]-1]]
-                            logwriter.writerow(row, )
+                # LOG THE DATA IF LOGGING AT ALL AND IT'S TIME TO DO SO
+                if (self.logging):
+                    if (recirc_check_cntr % self.recirc.log_every_points == 0):
+                        with open(self.recirc.logfilepath, 'a', newline='') as logfile:
+                            logwriter = csv.writer(logfile)
+                            with self.lock:
+                                row = [t_check_relative]  # time of the readings
+                                row = row + ['AB'[self.recirc.stmemo_state[-1]-1]]
+                                logwriter.writerow(row, )
 
                 # UPDATE THE PERIOD COUNTER AND WAIT FOR THE NEXT CHECK
                 recirc_check_cntr += 1  # update the check counter for the next step
@@ -2296,18 +2320,19 @@ class OB1_manager:
                             self.recirc.stmemo_time.pop(0)
                             self.recirc.stmemo_state.pop(0)
 
-                    # LOG THE DATA IF IT'S TIME TO DO SO
-                    if (recirc_check_cntr % self.recirc.log_every_points == 0):
-                        with open(self.recirc.logfilepath, 'a', newline='') as logfile:
-                            logwriter = csv.writer(logfile)
-                            with self.lock:
-                                row = [t_check_relative]  # time of the readings
-                                row = row + ['AB'[self.recirc.stmemo_state[-1]-1]]
-                                if (script_launch_time < 0):
-                                    row = row + [None]
-                                else:
-                                    row = row + [time.time() - script_launch_time]
-                                logwriter.writerow(row, )
+                    # LOG THE DATA IF LOGGING AT ALL AND IT'S TIME TO DO SO
+                    if (self.logging):
+                        if (recirc_check_cntr % self.recirc.log_every_points == 0):
+                            with open(self.recirc.logfilepath, 'a', newline='') as logfile:
+                                logwriter = csv.writer(logfile)
+                                with self.lock:
+                                    row = [t_check_relative]  # time of the readings
+                                    row = row + ['AB'[self.recirc.stmemo_state[-1]-1]]
+                                    if (script_launch_time < 0):
+                                        row = row + [None]
+                                    else:
+                                        row = row + [time.time() - script_launch_time]
+                                    logwriter.writerow(row, )
 
                     # UPDATE THE CHECK PERIOD COUNTER
                     recirc_check_cntr += 1  # update the check counter for the next step
