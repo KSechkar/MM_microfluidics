@@ -1,7 +1,7 @@
 # ONE_STOP_SHOP.PY
 # For running all microfluidic experiments
 
-EMULATING = True
+EMULATING = False
 
 # DEVICE NAMES AND PORTS - CHECK ON NIMAX IF GETTING INITIALISATION ERRORS ---------------------------------------------
 OB1_NAME = '0204CC5D'
