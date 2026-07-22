@@ -1469,17 +1469,20 @@ class OB1_manager:
         if not(self.valve.in_use or self.recirc.in_use):
             cmds_on_offer += '; change_medium'
         if(self.valve.in_use):
-            if (self.valve.mode == 'set'):
+            if (self.valve.mode == 'set' or
+                    (self.valve.mode == 'set_scripted' and (not self.valve.script_running))):
                 cmds_on_offer += '; set_valve_inlet'
-            elif (self.valve.mode == 'pwm'):
+            if (self.valve.mode == 'pwm' or
+                    (self.valve.mode == 'pwm_scripted' and (not self.valve.script_running))):
                 cmds_on_offer += '; set_input_conc'
-            elif((self.valve.mode == 'set_scripted' or self.valve.mode == 'pwm_scripted')
+            if((self.valve.mode == 'set_scripted' or self.valve.mode == 'pwm_scripted')
                   and (not self.valve.script_running)):
                 cmds_on_offer += '; launch_valve_script'
         if (self.recirc.in_use):
-            if (self.recirc.mode == 'manual'):
+            if (self.recirc.mode == 'manual' or
+                (self.recirc.mode == 'scripted' and (not self.recirc.script_running))):
                 cmds_on_offer += '; set_recirc_state'
-            elif(self.recirc.mode == 'scripted'):
+            if(self.recirc.mode == 'scripted' and (not self.recirc.script_running)):
                 cmds_on_offer += '; launch_recirc_script'
         if (self.logging):
             cmds_on_offer += '; pause_log'
@@ -1691,8 +1694,10 @@ class OB1_manager:
                                     file.write('Valve error '+str(valve_error_msg)+
                                                ' at t = '+ str(time.time()-self.cc_start_time) + ' s\n')
                             self.print_queue.put('Inlet changed')
-                    else:
+                    elif(user_cmd == 1 or user_cmd == 2):
                         self.print_queue.put('ERROR: the valve is in set inlet mode')
+                    else:
+                        self.print_queue.put('ERROR: valve command not recognised')
                 except:
                     pass
 
@@ -1765,8 +1770,10 @@ class OB1_manager:
                             else:
                                 next_action = 2
                                 continue
-                        else:
+                        elif(user_cmd == 0 or user_cmd == 2):
                             self.print_queue.put('ERROR: the valve is in PWM mode')
+                        else:
+                            self.print_queue.put('ERROR: valve command not recognised')
                     except:
                         pass
                     # RECORD THE VALVE DATA IN SHORT-TERM MEMORY
@@ -1895,7 +1902,34 @@ class OB1_manager:
                         # get the user command and the argument
                         user_cmd, user_cmd_arg0, user_cmd_arg1, user_cmd_arg2 = self.user_valve_cmd_queue.get_nowait()
 
-                        if (user_cmd == 2):  # 2 for launching the valve script
+                        if (user_cmd == 0):  # 0 for changing the valve inlet manually
+                            # print an error message for impossible inlets outside the 1-12 range
+                            if (user_cmd_arg0 < 1 or user_cmd_arg0 > 12):
+                                self.print_queue.put('ERROR: impossible valve inlet')
+                            # print an error message if the desired valve inlet not in use
+                            if (user_cmd_arg0 > len(self.valve.inlet_concs)):
+                                self.print_queue.put('ERROR: valve inlet not in use')
+                            # otherwise, update valve controls
+                            else:
+                                with self.lock:
+                                    self.valve.inlet = int(user_cmd_arg0)
+                                    self.valve.input_conc = self.valve.inlet_concs[self.valve.inlet - 1]
+                                # set the valve to desired input
+                                valve_error_msg = MUX_DRI_Set_Valve(self.valve.instridval,  # valve ID value
+                                                                    c_int32(self.valve.inlet),  # valve inlet
+                                                                    0  # valve rotation direction (zero for shortest)
+                                                                    )
+                                # record valve error in the log
+                                if (valve_error_msg != 0):
+                                    with open(self.valve.error_logfilepath, 'a') as file:
+                                        file.write('Valve error ' + str(valve_error_msg) +
+                                                   ' at t = ' + str(time.time() - self.cc_start_time) + ' s\n')
+                                self.print_queue.put('Inlet changed')
+
+                        elif(user_cmd == 1): # 1 for changin the PWM conc manually
+                            self.print_queue.put('ERROR: the valve is in set_scripted mode')
+
+                        elif (user_cmd == 2):  # 2 for launching the valve script
                             # record the time at which the script was launched
                             script_launch_time = time.time()
                             # indicate that the script is now running
@@ -1906,13 +1940,14 @@ class OB1_manager:
                             # get the next command from the script and the time of its execution
                             next_scripted_cmd_time = self.valve.scripted_cmd_times[script_cmd_cntr]
                             next_scripted_cmd = self.valve.scripted_cmds[script_cmd_cntr]
+                            self.print_queue.put('Valve script launched')
                             # if the command is to be executed striaghtaway, update pwm controls out of due order
                             if (next_scripted_cmd_time == 0):
                                 next_action = 3
                                 continue
 
                         else:
-                            self.print_queue.put('ERROR: the valve is in SCRIPTED SET INLET mode')
+                            self.print_queue.put('ERROR: valve command not recognised!')
                     except:
                         pass
 
@@ -2032,7 +2067,30 @@ class OB1_manager:
                         # get the user command and the argument
                         user_cmd, user_cmd_arg0, user_cmd_arg1, user_cmd_arg2 = self.user_valve_cmd_queue.get_nowait()
 
-                        if (user_cmd == 2):  # 2 for launching the valve script
+                        if(user_cmd == 0): # 0 for changing the valve inlet manually
+                            self.print_queue.put('ERROR: the vale is in pwm_scripted mode')
+
+                        elif (user_cmd == 1):  # 1 for changing the desired PWM conc. manually
+                            # update controls - will come into effect at the next duty cycle
+                            with self.lock:
+                                self.valve.input_conc = user_cmd_arg0
+                                self.valve.pwm_update_controls()
+                            # report back to the user
+                            self.print_queue.put('Input conc. changed')
+                            # reset the PWM period counter and time at which the valve was set to enforce the given PWM input
+                            pwm_period_cntr = 0
+                            curr_pwm_input_set_time = time.time()
+                            # reset the valve check counter, since we're now enforcing a new PWM input conc.
+                            valve_check_cntr = 0
+                            # out of due order, set the inlet valve to high if it ever should be high (and to low otherwise)
+                            if (self.valve.pwm_duty_cycle > 0):
+                                next_action = 1
+                                continue
+                            else:
+                                next_action = 2
+                                continue
+
+                        elif (user_cmd == 2):  # 2 for launching the valve script
                             # record the time at which the script was launched
                             script_launch_time = time.time()
                             # indicate that the script is now running
@@ -2043,12 +2101,13 @@ class OB1_manager:
                             # get the next command from the script and the time of its execution
                             next_scripted_cmd_time = self.valve.scripted_cmd_times[script_cmd_cntr]
                             next_scripted_cmd = self.valve.scripted_cmds[script_cmd_cntr]
+                            self.print_queue.put('Valve script launched')
                             # if the command is to be executed striaghtaway, update pwm controls out of due order
                             if(next_scripted_cmd_time==0):
                                 next_action = 3
                                 continue
                         else:
-                            self.print_queue.put('ERROR: the valve is in SCRIPTED PWM mode')
+                            self.print_queue.put('ERROR: valve command not recognised')
                     except:
                         pass
                     # RECORD THE VALVE DATA IN SHORT-TERM MEMORY
@@ -2308,7 +2367,26 @@ class OB1_manager:
                         # get the user command and the argument
                         user_cmd, user_cmd_arg0, user_cmd_arg1, user_cmd_arg2 = self.user_recirc_cmd_queue.get_nowait()
 
-                        if (user_cmd == 2):  # 2 for launching the  script
+                        if (user_cmd == 0):  # 0 for changing the recirculator state manually
+                            # print an error message for impossible states outside the 1-2 (alias A-B) range
+                            if (user_cmd_arg0 < 1 or user_cmd_arg0 > 2):
+                                self.print_queue.put('ERROR: impossible recirculator state')
+                            # otherwise, update recirculator controls
+                            else:
+                                with self.lock:
+                                    self.recirc.state = int(user_cmd_arg0)
+                                # set the recirculator to desired state
+                                recirc_error_msg = MUX_DRI_Set_Valve(self.recirc.instridval,  # valve ID value
+                                                                     c_int32(self.recirc.state),  # valve inlet
+                                                                     0  # valve rotation direction (zero for shortest)
+                                                                     )
+                                # record valve error in the log
+                                if (recirc_error_msg != 0):
+                                    with open(self.recirc.error_logfilepath, 'a') as file:
+                                        file.write('Recirculator error ' + str(recirc_error_msg) +
+                                                   ' at t = ' + str(time.time() - self.cc_start_time) + ' s\n')
+                                self.print_queue.put('State changed')
+                        elif (user_cmd == 2):  # 2 for launching the script
                             # record the time at which the script was launched
                             script_launch_time = time.time()
                             # indicate that the script is now running
@@ -2319,13 +2397,14 @@ class OB1_manager:
                             # get the next command from the script and the time of its execution
                             next_scripted_cmd_time = self.recirc.scripted_cmd_times[script_cmd_cntr]
                             next_scripted_cmd = self.recirc.scripted_cmds[script_cmd_cntr]
+                            self.print_queue.put('Recirculator script launched')
                             # if the command is to be executed striaghtaway, do it out of due order
                             if (next_scripted_cmd_time == 0):
                                 next_action = 3
                                 continue
 
                         else:
-                            self.print_queue.put('ERROR: the recirculator is in SCRIPTED mode')
+                            self.print_queue.put('ERROR: recirculator command not recognised')
                     except:
                         pass
 
@@ -2388,7 +2467,6 @@ class OB1_manager:
                             with self.lock:
                                 next_scripted_cmd_time = self.recirc.scripted_cmd_times[scripted_cmd_cntr]
                                 next_scripted_cmd = self.recirc.scripted_cmds[scripted_cmd_cntr]
-                                print(next_scripted_cmd_time, next_scripted_cmd)
                         # reset time at which the recirculator was set to the current inlet
                         curr_state_set_time = time.time()
                         # reset the recirculator check counter, since we're now enforcing a new PWM input conc.
