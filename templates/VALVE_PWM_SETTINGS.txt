@@ -33,9 +33,9 @@ END VALVE-COMPUTER INTERACTIONS
 
 VALVE OPERATIONS
 mode = pwm
-inlet_concs = 0.0 10.0
+inlet_concs = 0.0 10.0 20.0 30.0
 pwm_period = 10 s
-starting_input_conc = 10.0
+starting_input_conc = 0.0
 END VALVE OPERATIONS
 END VALVE
 

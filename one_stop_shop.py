@@ -1167,7 +1167,7 @@ class OB1_manager:
             self.recirc.error_logfilepath = os.path.abspath(recirc_log_filename[:-4]+'_errors.txt')
 
         # ask how much medium there is in the source - IF VALVE NOT IN USE
-        if(not self.valve.in_use):
+        if not(self.valve.in_use or self.recirc.in_use):
             for ch in self.channels:
                 if(ch.in_use):
                     ch.medstart = get_valid_input_float('How much medium is there in the CHANNEL '+str(ch.id)+' source (ml)? : ')
@@ -1219,7 +1219,7 @@ class OB1_manager:
                 for row_entry in recirc_entries:
                     row.append(row_entry)
                 logwriter.writerow(row)
-            with(open(self.valve.error_logfilepath, 'w', newline='')) as logfile:
+            with(open(self.recirc.error_logfilepath, 'w', newline='')) as logfile:
                 logfile.write('RECIRCULATOR ERROR LOG:\n')
 
         # start the threads
@@ -1466,15 +1466,16 @@ class OB1_manager:
     def cruise_control_user(self):
         # get the set of commands on offer for a given valve mode
         cmds_on_offer = 'stop; set_ref_flow, set_const_press, set_gains, purge_integ'
-        if (not self.valve.in_use):
+        if not(self.valve.in_use or self.recirc.in_use):
             cmds_on_offer += '; change_medium'
-        elif (self.valve.mode == 'set'):
-            cmds_on_offer += '; set_valve_inlet'
-        elif (self.valve.mode == 'pwm'):
-            cmds_on_offer += '; set_input_conc'
-        elif((self.valve.mode == 'set_scripted' or self.valve.mode == 'pwm_scripted')
-              and (not self.valve.script_running)):
-            cmds_on_offer += '; launch_valve_script'
+        if(self.valve.in_use):
+            if (self.valve.mode == 'set'):
+                cmds_on_offer += '; set_valve_inlet'
+            elif (self.valve.mode == 'pwm'):
+                cmds_on_offer += '; set_input_conc'
+            elif((self.valve.mode == 'set_scripted' or self.valve.mode == 'pwm_scripted')
+                  and (not self.valve.script_running)):
+                cmds_on_offer += '; launch_valve_script'
         if (self.recirc.in_use):
             if (self.recirc.mode == 'manual'):
                 cmds_on_offer += '; set_recirc_state'
@@ -1551,18 +1552,21 @@ class OB1_manager:
             # command code 4 now deprecated, as live plotting triggered from cruise_control_user
 
             elif(user_cmd=='change_medium'):
-                if (self.channels[0].in_use and (not self.channels[1].in_use)):
-                    ch_id = 1
-                elif ((not self.channels[0].in_use) and self.channels[1].in_use):
-                    ch_id = 2
+                if(self.channels[0].in_use or self.channels[1].in_use):
+                    self.print_queue.put('Valve and/or recirculator in use => not tracking media volumes!')
                 else:
-                    ch_id = get_valid_input_int("Specify the channel (1,2) : ")
-                medleft_new = get_valid_input_float("Specify the new starting medium volume (ml): ")
-                print(medleft_new)
-                self.user_cmd_queue.put((5,  # command code: 5 for changing the medium source
-                                         ch_id, # channel
-                                         # args
-                                         medleft_new, 0, 0))
+                    if (self.channels[0].in_use and (not self.channels[1].in_use)):
+                        ch_id = 1
+                    elif ((not self.channels[0].in_use) and self.channels[1].in_use):
+                        ch_id = 2
+                    else:
+                        ch_id = get_valid_input_int("Specify the channel (1,2) : ")
+                    medleft_new = get_valid_input_float("Specify the new starting medium volume (ml): ")
+                    print(medleft_new)
+                    self.user_cmd_queue.put((5,  # command code: 5 for changing the medium source
+                                             ch_id, # channel
+                                             # args
+                                             medleft_new, 0, 0))
             elif (user_cmd == 'purge_integ'):
                 if (self.channels[0].in_use and (not self.channels[1].in_use)):
                     ch_id = 1
@@ -1576,37 +1580,52 @@ class OB1_manager:
                                          0, 0, 0))
             # VALVE COMMANDS -------------------------------------------------------------------------------------
             elif(user_cmd=='set_valve_inlet'):
-                new_inlet = get_valid_input_int("Specify the inlet : ")
-                self.user_valve_cmd_queue.put((0,   # command code: 0 for changing the valve inlet
-                                               # args
-                                               new_inlet, 0, 0))
+                if(not self.valve.in_use):
+                    self.print_queue.put('Valve not in use!')
+                else:
+                    new_inlet = get_valid_input_int("Specify the inlet : ")
+                    self.user_valve_cmd_queue.put((0,   # command code: 0 for changing the valve inlet
+                                                   # args
+                                                   new_inlet, 0, 0))
             elif (user_cmd == 'set_input_conc'):
-                new_input_conc = get_valid_input_float("Specify the PWM input conc. : ")
-                self.user_valve_cmd_queue.put((1,  # command code: 1 for changing the PWM input conc.
-                                               # args
-                                               new_input_conc, 0, 0))
+                if(not self.valve.in_use):
+                    self.print_queue.put('Valve not in use!')
+                else:
+                    new_input_conc = get_valid_input_float("Specify the PWM input conc. : ")
+                    self.user_valve_cmd_queue.put((1,  # command code: 1 for changing the PWM input conc.
+                                                   # args
+                                                   new_input_conc, 0, 0))
             elif(user_cmd == 'launch_valve_script'):
-                self.user_valve_cmd_queue.put((2,  # command code: 2 for launching a script
-                                               # args
-                                               0, 0, 0))
+                if(not self.valve.in_use):
+                    self.print_queue.put('Valve not in use!')
+                else:
+                    self.user_valve_cmd_queue.put((2,  # command code: 2 for launching a script
+                                                   # args
+                                                   0, 0, 0))
 
             # RECIRCULATOR COMMANDS -------------------------------------------------------------------------------------
             elif (user_cmd == 'set_recirc_state'):
-                while(True):
-                    new_state_A_or_B = input("Specify the state (A,B): ")
-                    if(new_state_A_or_B == 'A'):
-                        new_state = 1
-                        break
-                    elif(new_state_A_or_B == 'B'):
-                        new_state = 2
-                        break
-                self.user_recirc_cmd_queue.put((0,  # command code: 0 for changing the recirculator inlet
-                                               # args
-                                               new_state, 0, 0))
+                if(not self.recirc.in_use):
+                    self.print_queue.put('Recirculator not in use!')
+                else:
+                    while(True):
+                        new_state_A_or_B = input("Specify the state (A,B): ")
+                        if(new_state_A_or_B == 'A'):
+                            new_state = 1
+                            break
+                        elif(new_state_A_or_B == 'B'):
+                            new_state = 2
+                            break
+                    self.user_recirc_cmd_queue.put((0,  # command code: 0 for changing the recirculator inlet
+                                                   # args
+                                                   new_state, 0, 0))
             elif (user_cmd == 'launch_recirc_script'):
-                self.user_recirc_cmd_queue.put((2,  # command code: 2 for launching a script; yes I know '1' is undefined, but I'm going fro consistency with the recirculator
-                                               # args
-                                               0, 0, 0))
+                if(not self.recirc.in_use):
+                    self.print_queue.put('Recirculator not in use!')
+                else:
+                    self.user_recirc_cmd_queue.put((2,  # command code: 2 for launching a script; yes I know '1' is undefined, but I'm going fro consistency with the recirculator
+                                                   # args
+                                                   0, 0, 0))
 
             # USER INTERFACE COMMANDS ----------------------------------------------------------------------------------
             elif (user_cmd == 'live_plot'):  # opening a live plot
@@ -1624,6 +1643,8 @@ class OB1_manager:
                     self.print_queue.put('Logging already!')
                 else:
                     self.logging = True
+            else:
+                self.print_queue.put('Command not recognised!')
         return
 
     def cruise_control_valve(self):
@@ -2611,7 +2632,7 @@ class OB1_manager:
                 ch2_medleft_line_live = None
 
         # IF VALVE IN USE, plot valve states
-        else:
+        if(self.valve.in_use):
             # plot the valve inlet
             axs_live[1, 1].grid()
             axs_live[1, 1].set_ylim(bottom=0, top=13)
@@ -2642,6 +2663,10 @@ class OB1_manager:
                 # plot the set input concentration
                 valve_input_conc_line_live, = axs_live[1, 2].plot([], [], label='Set input conc.',
                                linestyle='-', color='black')
+        # IF VALVE NOT IN USE, don't plot its state
+        else:
+            axs_live[1, 1].axis('off')
+            valve_inlet_line_live = None
 
         # IF RECIRCULATOR IN USE, plot the state
         if(self.recirc.in_use):
@@ -2660,6 +2685,7 @@ class OB1_manager:
             # plot the inlets
             recirc_state_line_live, = axs_live[1, 2].plot([], [], label='Recirc. state',
                                                          linestyle='-', color='black')
+
 
         # IF SOME PLOTS NOT PRESENT, just pass Nones as plot lines to be passing something
         if (not self.channels[0].in_use): # channel 1 PID gains
@@ -2722,7 +2748,7 @@ class OB1_manager:
                     axs_live[0, 2].autoscale_view()
 
                 # IF VALVE AND/OR RECIRCULATOR NOT IN USE, update medium left plots
-                if(not self.valve.in_use and not self.recirc.in_use):
+                if not(self.valve.in_use or self.recirc.in_use):
                     # update the medium left plot for channel 1
                     if(self.channels[0].in_use):
                         ch1_medleft_line_live.set_data(self.channels[0].stmemo_time, self.channels[0].stmemo_medleft)
@@ -2736,7 +2762,7 @@ class OB1_manager:
                         axs_live[1, 2].autoscale_view()
 
                 # IF VALVE IN USE, update valve plots
-                else:
+                if(self.valve.in_use):
                     # update the inlet plot for the valve
                     valve_inlet_line_live.set_data(self.valve.stmemo_time, self.valve.stmemo_inlet)
                     axs_live[1, 1].relim()
