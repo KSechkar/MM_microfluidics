@@ -12,8 +12,7 @@ but are available from Kirill Sechkar upon request
 
 ---
 
-# User manual version 22 Apr 26:
-(see Steel Lab's _Microscope1_ notebook for the latest version)
+# User manual version 22 Jul 26:
 
 ## Set up and Run
 
@@ -150,14 +149,14 @@ Medium → Sensor → Resistance element → Filter? → Inlet needle → Chip �
         - **purge_integ** - purge (set to zero) the flow error integral for a given channel's PID flow controller
     - Valve
       - **set_valve_inlet** - set the valve to a given inlet
-        - Note: only available in set mode
+        - Note: only available in set mode and set_scripted mode BEFORE the script is launched
       - **set_input_conc** -set the input comound concentration to be achieved by PWM
-        - Note: only available in pwm mode
+        - Note: only available in pwm mode and pwm_scripted mode BEFORE the script is launched
       - **launch_valve_script** - launch the valve script
         - Note: only available in set_scripted and pwm_scripted modes
-        - Recirculator
+    - Recirculator
       - **set_recirc_state** - set the recicrulator to a given state (A or B)
-        - Note: only available in manual mode
+        - Note: only available in manual mode and in scripted mode BEFORE the script is launched
       - **launch_recirc_script** - launch the valve script
         - Note: only available in scripted mode
     - Logging
